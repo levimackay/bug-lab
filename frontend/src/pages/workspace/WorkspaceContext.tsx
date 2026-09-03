@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import type * as monaco from "monaco-editor";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../api/endpoints";
@@ -17,6 +17,8 @@ interface WorkspaceContextValue {
   runId: string;
   run: Run | null;
   loading: boolean;
+  loadError: string | null;
+  retryLoad: () => void;
   elapsedSeconds: number;
   refreshRun: () => Promise<void>;
 
@@ -94,7 +96,11 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   const [run, setRun] = useState<Run | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [statusMessage, setStatusMessage] = useState("");
+
+  const announce = useCallback((message: string) => setStatusMessage(message), []);
 
   const [files, setFiles] = useState<string[]>([]);
 
@@ -116,12 +122,26 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   const [runningAction, setRunningAction] = useState<ActionKind | null>(null);
 
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [fileSwitcherOpen, setFileSwitcherOpen] = useState(false);
-  const [newFileDialogOpen, setNewFileDialogOpen] = useState(false);
-  const [reproduceDialogOpen, setReproduceDialogOpen] = useState(false);
-  const [resetDialogOpen, setResetDialogOpen] = useState(false);
-  const [revealSolutionDialogOpen, setRevealSolutionDialogOpen] = useState(false);
+  // A single slot so opening one dialog always closes any other: two dialogs
+  // must never be visible (and fighting over Tab/Escape) at once.
+  type DialogId = "commandPalette" | "fileSwitcher" | "newFile" | "reproduce" | "reset" | "revealSolution";
+  const [openDialog, setOpenDialog] = useState<DialogId | null>(null);
+  const makeDialogSetter = (id: DialogId) => (open: boolean) =>
+    setOpenDialog((prev) => (open ? id : prev === id ? null : prev));
+
+  const commandPaletteOpen = openDialog === "commandPalette";
+  const setCommandPaletteOpen = makeDialogSetter("commandPalette");
+  const fileSwitcherOpen = openDialog === "fileSwitcher";
+  const setFileSwitcherOpen = makeDialogSetter("fileSwitcher");
+  const newFileDialogOpen = openDialog === "newFile";
+  const setNewFileDialogOpen = makeDialogSetter("newFile");
+  const reproduceDialogOpen = openDialog === "reproduce";
+  const setReproduceDialogOpen = makeDialogSetter("reproduce");
+  const resetDialogOpen = openDialog === "reset";
+  const setResetDialogOpen = makeDialogSetter("reset");
+  const revealSolutionDialogOpen = openDialog === "revealSolution";
+  const setRevealSolutionDialogOpen = makeDialogSetter("revealSolution");
+
   const [terminalFocusSignal, setTerminalFocusSignal] = useState(0);
   const [terminalCollapsed, setTerminalCollapsed] = useState(false);
 
@@ -134,27 +154,28 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
     setTerminalCollapsed((c) => !c);
   }
 
-  // Load run + files on mount / run id change.
-  useEffect(() => {
-    let cancelled = false;
+  // Load run + files on mount / run id change (WorkspaceProvider is remounted
+  // fresh per runId, via the `key` prop in Workspace.tsx).
+  const loadRun = useCallback(() => {
     setLoading(true);
+    setLoadError(null);
     Promise.all([api.run(runId), api.files(runId)])
       .then(([r, f]) => {
-        if (cancelled) return;
         setRun(r);
         setElapsedSeconds(r.elapsed_seconds);
         setFiles(f.files);
       })
       .catch((err: unknown) => {
-        pushError(err instanceof ApiError ? err.message : "Failed to load run");
+        const message = err instanceof ApiError ? err.message : "Failed to load run";
+        setLoadError(message);
+        pushError(message);
       })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
+      .finally(() => setLoading(false));
   }, [runId, pushError]);
+
+  useEffect(() => {
+    loadRun();
+  }, [loadRun]);
 
   // Local ticking clock.
   useEffect(() => {
@@ -233,7 +254,6 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
   // editor can show (or, worse, save) an empty buffer.
   useEffect(() => {
     for (const f of openFiles) loadContent(f.path);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runId]);
 
   function openFile(path: string) {
@@ -264,6 +284,9 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   function setSaveState(path: string, state: SaveState) {
     setOpenFiles((prev) => prev.map((f) => (f.path === path ? { ...f, saveState: state } : f)));
+    const name = path.split("/").pop();
+    if (state === "saved") announce(`${name} saved.`);
+    else if (state === "error") announce(`Failed to save ${name}.`);
   }
 
   function persistFile(path: string) {
@@ -320,13 +343,16 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   async function doRun() {
     setRunningAction("run");
+    announce("Running…");
     try {
       const result = await api.runAction(runId);
       setStackTrace(result.stack_trace);
       setInvestigationTab(result.stack_trace ? "trace" : "runtime");
       await Promise.all([refreshRuntime(), refreshLogs(), refreshRun()]);
+      announce(`Run finished. Exit ${result.exec.exit_code}.`);
     } catch (err) {
       pushError(err instanceof ApiError ? err.message : "Run failed");
+      announce("Run failed.");
     } finally {
       setRunningAction(null);
     }
@@ -334,6 +360,7 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   async function doBuild() {
     setRunningAction("build");
+    announce("Building…");
     try {
       const result = await api.build(runId);
       if (result.stack_trace) {
@@ -341,8 +368,10 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
         setInvestigationTab("trace");
       }
       await Promise.all([refreshRuntime(), refreshLogs(), refreshRun()]);
+      announce(result.exec ? `Build finished. Exit ${result.exec.exit_code}.` : "Build finished.");
     } catch (err) {
       pushError(err instanceof ApiError ? err.message : "Build failed");
+      announce("Build failed.");
     } finally {
       setRunningAction(null);
     }
@@ -350,6 +379,7 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   async function doTest() {
     setRunningAction("test");
+    announce("Running tests…");
     try {
       const result = await api.test(runId);
       setTestRun(result);
@@ -357,8 +387,10 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
       setStackTrace(result.stack_trace);
       setInvestigationTab("tests");
       await Promise.all([refreshLogs(), refreshRun()]);
+      announce(`Tests: ${result.summary.passed} passed, ${result.summary.failed} failed.`);
     } catch (err) {
       pushError(err instanceof ApiError ? err.message : "Test run failed");
+      announce("Test run failed.");
     } finally {
       setRunningAction(null);
     }
@@ -377,9 +409,11 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
 
   async function doSubmit() {
     setRunningAction("submit");
+    announce("Submitting…");
     try {
       const result = await api.submit(runId);
       if (result.resolved) {
+        announce("Incident resolved.");
         try {
           sessionStorage.setItem(`buglab:resolved:${runId}`, JSON.stringify(result));
         } catch {
@@ -391,9 +425,11 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
         setHiddenTests(result.hidden);
         setInvestigationTab("tests");
         await refreshRun();
+        announce(`Tests: ${result.visible.summary.passed} passed, ${result.visible.summary.failed} failed. Not resolved.`);
       }
     } catch (err) {
       pushError(err instanceof ApiError ? err.message : "Submit failed");
+      announce("Submit failed.");
     } finally {
       setRunningAction(null);
     }
@@ -442,6 +478,8 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
     runId,
     run,
     loading,
+    loadError,
+    retryLoad: loadRun,
     elapsedSeconds,
     refreshRun,
     files,
@@ -495,5 +533,13 @@ export function WorkspaceProvider({ runId, children }: { runId: string; children
     toggleTerminal,
   };
 
-  return <WorkspaceContext.Provider value={value}>{children}</WorkspaceContext.Provider>;
+  return (
+    <WorkspaceContext.Provider value={value}>
+      {children}
+      {/* One status line for the whole workspace: run/test/save feedback. Toasts (errors) are announced separately, assertively. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {statusMessage}
+      </div>
+    </WorkspaceContext.Provider>
+  );
 }

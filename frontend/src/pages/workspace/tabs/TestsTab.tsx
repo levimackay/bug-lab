@@ -28,7 +28,9 @@ function TestRow({ test }: { test: TestResult }) {
         disabled={!canExpand}
       >
         <span className={"w-3 font-mono " + STATUS_COLOR[test.status]}>{STATUS_GLYPH[test.status]}</span>
-        <span className="flex-1 truncate font-mono text-xs text-ink-dim">{test.name}</span>
+        <span className="flex-1 truncate font-mono text-xs text-ink-dim" title={test.name}>
+          {test.name}
+        </span>
         <span className="font-mono text-2xs text-ink-faint">{test.duration_ms}ms</span>
       </button>
       {expanded && canExpand && (
@@ -78,7 +80,9 @@ export function TestsTab() {
                 <span className={"w-3 font-mono " + STATUS_COLOR[t.status as TestResult["status"]]}>
                   {STATUS_GLYPH[t.status as TestResult["status"]] ?? "○"}
                 </span>
-                <span className="flex-1 truncate font-mono text-xs text-ink-dim">{t.name}</span>
+                <span className="flex-1 truncate font-mono text-xs text-ink-dim" title={t.name}>
+                  {t.name}
+                </span>
                 <span className="font-mono text-2xs text-ink-faint">hidden</span>
               </div>
             ))}

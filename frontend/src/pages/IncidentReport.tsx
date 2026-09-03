@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/http";
 import type { IncidentSummary } from "../api/types";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { SeverityDot, severityLabel } from "../components/SeverityDot";
 import { SkeletonRows } from "../components/Skeleton";
@@ -11,25 +12,27 @@ import { useToast } from "../components/ToastProvider";
 export default function IncidentReport() {
   const { id } = useParams<{ id: string }>();
   const [incident, setIncident] = useState<IncidentSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [starting, setStarting] = useState(false);
   const { pushError } = useToast();
   const navigate = useNavigate();
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return;
-    let cancelled = false;
+    setError(null);
     api
       .incident(id)
-      .then((inc) => {
-        if (!cancelled) setIncident(inc);
-      })
+      .then((inc) => setIncident(inc))
       .catch((err: unknown) => {
-        pushError(err instanceof ApiError ? err.message : "Failed to load incident");
+        const message = err instanceof ApiError ? err.message : "Failed to load incident";
+        setError(message);
+        pushError(message);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [id, pushError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   async function startInvestigation() {
     if (!id) return;
@@ -47,7 +50,9 @@ export default function IncidentReport() {
     <div className="min-h-screen bg-ground">
       <PageHeader />
       <div className="mx-auto max-w-[720px] p-6">
-        {!incident ? (
+        {error ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : !incident ? (
           <SkeletonRows count={8} />
         ) : (
           <div className="mount-stagger flex flex-col gap-5">

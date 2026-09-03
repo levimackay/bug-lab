@@ -30,7 +30,7 @@ def test_parse_tap_with_preceding_diagnostics():
 
 def test_parse_tap_crash_is_reported():
     tests, err = parse_tap("1..3\nok 1 - a\n==123==ERROR: AddressSanitizer: heap-use-after-free")
-    assert len(tests) == 1 and err == ""
+    assert len(tests) == 1 and "1/3" in err  # plan promised 3, the binary died after 1
     assert parse_tap("")[1]
 
 

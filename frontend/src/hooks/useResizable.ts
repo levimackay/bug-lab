@@ -34,5 +34,16 @@ export function useResizable(key: string, initial: number, min: number, max: num
     [axis, invert, key, max, min, size],
   );
 
-  return [size, onMouseDown] as const;
+  const adjust = useCallback(
+    (delta: number) => {
+      setSize((current) => {
+        const next = Math.min(max, Math.max(min, current + delta * (invert ? -1 : 1)));
+        writeLocalStorage(key, next);
+        return next;
+      });
+    },
+    [invert, key, max, min],
+  );
+
+  return [size, onMouseDown, adjust] as const;
 }

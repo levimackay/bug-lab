@@ -1,9 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/http";
 import type { Postmortem, Run, Score } from "../api/types";
 import { DiffView } from "../components/DiffView";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { SkeletonRows } from "../components/Skeleton";
 import { useToast } from "../components/ToastProvider";
@@ -26,9 +27,11 @@ export default function Resolved() {
   const navigate = useNavigate();
   const { pushError } = useToast();
   const [data, setData] = useState<ResolvedData | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(() => {
     if (!id) return;
+    setError(null);
 
     const routerState = location.state as { run: Run; score: Score | null; postmortem: Postmortem | null } | null;
     if (routerState?.score && routerState.postmortem) {
@@ -59,9 +62,15 @@ export default function Resolved() {
         }
       })
       .catch((err: unknown) => {
-        pushError(err instanceof ApiError ? err.message : "Failed to load result");
+        const message = err instanceof ApiError ? err.message : "Failed to load result";
+        setError(message);
+        pushError(message);
       });
   }, [id, location.state, navigate, pushError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   if (!id) return null;
 
@@ -69,7 +78,9 @@ export default function Resolved() {
     <div className="min-h-screen bg-ground">
       <PageHeader />
       <div className="mx-auto max-w-4xl p-6">
-        {!data ? (
+        {error ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : !data ? (
           <SkeletonRows count={10} />
         ) : (
           <div className="mount-stagger flex flex-col gap-8">

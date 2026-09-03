@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { Language } from "../../api/types";
+import { useDialogFocusTrap } from "../../hooks/useDialogFocusTrap";
 import { useWorkspaceContext } from "./WorkspaceContext";
 
 const DEFAULT_REPRO_PATH: Record<Language, string> = {
@@ -15,19 +16,13 @@ export function NewFileDialog({ onClose }: { onClose: () => void }) {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
+  useDialogFocusTrap(dialogRef, onClose);
   useEffect(() => {
     inputRef.current?.focus();
     inputRef.current?.select();
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, []);
 
   async function onCreate() {
     if (!path.trim()) return;
@@ -45,7 +40,7 @@ export function NewFileDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div role="dialog" aria-modal="true" aria-label="New file" className="w-96 border border-line-strong bg-panel">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="New file" className="w-96 border border-line-strong bg-panel">
         <div className="panel-title border-b border-line">New file</div>
         <div className="flex flex-col gap-2 p-4">
           <input
@@ -57,7 +52,11 @@ export function NewFileDialog({ onClose }: { onClose: () => void }) {
             }}
             className="focus-ring border border-line bg-ground px-2 py-1 font-mono text-xs text-ink outline-none"
           />
-          {error && <div className="font-mono text-2xs text-failure">{error}</div>}
+          {error && (
+            <div role="alert" className="font-mono text-2xs text-failure">
+              {error}
+            </div>
+          )}
         </div>
         <div className="flex justify-end gap-2 border-t border-line p-2">
           <button className="btn focus-ring" onClick={onClose}>

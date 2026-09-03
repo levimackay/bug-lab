@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/http";
 import type { ProgressInfo } from "../api/types";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { ProgressBar } from "../components/ProgressBar";
 import { SkeletonRows } from "../components/Skeleton";
@@ -16,28 +17,32 @@ function formatTime(seconds: number): string {
 
 export default function Dashboard() {
   const [progress, setProgress] = useState<ProgressInfo | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const { pushError } = useToast();
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(() => {
+    setError(null);
     api
       .progress()
-      .then((p) => {
-        if (!cancelled) setProgress(p);
-      })
+      .then((p) => setProgress(p))
       .catch((err: unknown) => {
-        pushError(err instanceof ApiError ? err.message : "Failed to load progress");
+        const message = err instanceof ApiError ? err.message : "Failed to load progress";
+        setError(message);
+        pushError(message);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [pushError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   return (
     <div className="min-h-screen bg-ground">
       <PageHeader />
       <div className="mx-auto max-w-4xl p-6">
-        {!progress ? (
+        {error ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : !progress ? (
           <SkeletonRows count={8} />
         ) : (
           <div className="mount-stagger flex flex-col gap-8">

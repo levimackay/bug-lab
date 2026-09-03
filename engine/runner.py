@@ -180,8 +180,8 @@ def parse_junit(xml: str) -> tuple[list[TestResult], str]:
         classname = tc.get("classname", "")
         name = tc.get("name", "?")
         full = f"{classname}::{name}" if classname and not name.startswith(classname) else name
-        # node's junit reporter nests suites; strip file-ish prefixes for display
-        full = full.replace("\\", "/")
+        # node's junit reporter labels every case with classname "test"
+        full = full.replace("\\", "/").removeprefix("test::")
         dur = int(float(tc.get("time", "0") or 0) * 1000)
         status, message = "passed", ""
         for child in tc:

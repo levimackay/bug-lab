@@ -25,7 +25,7 @@ export function StatusStrip() {
         {severityLabel(incident.severity)}
       </span>
       <span className="text-ink normal-case tracking-normal">{incident.title}</span>
-      <span className="ml-auto">{formatElapsed(elapsedSeconds)}</span>
+      <span className="ml-auto tabular-nums">{formatElapsed(elapsedSeconds)}</span>
       <span className={run.status === "resolved" ? "text-success" : "text-running"}>
         {run.status === "resolved" ? "RESOLVED" : "ACTIVE"}
       </span>

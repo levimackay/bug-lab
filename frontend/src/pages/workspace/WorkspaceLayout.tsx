@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { ErrorState } from "../../components/ErrorState";
 import { ResizeHandle } from "../../components/ResizeHandle";
 import { SkeletonRows } from "../../components/Skeleton";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
@@ -21,9 +22,16 @@ export function WorkspaceLayout() {
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
   const [investigationDrawerOpen, setInvestigationDrawerOpen] = useState(false);
 
-  const [filesWidth, onFilesResize] = useResizable("buglab:pane:files", 240, 160, 420, "x");
-  const [investigationWidth, onInvestigationResize] = useResizable("buglab:pane:investigation", 360, 260, 560, "x", true);
-  const [terminalHeight, onTerminalResize] = useResizable("buglab:pane:terminal", 240, 120, 480, "y", true);
+  const [filesWidth, onFilesResize, adjustFilesWidth] = useResizable("buglab:pane:files", 240, 160, 420, "x");
+  const [investigationWidth, onInvestigationResize, adjustInvestigationWidth] = useResizable(
+    "buglab:pane:investigation",
+    360,
+    260,
+    560,
+    "x",
+    true,
+  );
+  const [terminalHeight, onTerminalResize, adjustTerminalHeight] = useResizable("buglab:pane:terminal", 240, 120, 480, "y", true);
 
   // Keep a live pointer to the latest context so the single, mount-once
   // keydown listener below never closes over stale state or handlers.
@@ -56,6 +64,15 @@ export function WorkspaceLayout() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  if (ctx.loadError) {
+    return (
+      <div className="flex h-screen flex-col bg-ground">
+        <StatusStrip />
+        <ErrorState message={ctx.loadError} onRetry={ctx.retryLoad} />
+      </div>
+    );
+  }
+
   if (ctx.loading) {
     return (
       <div className="flex h-screen flex-col bg-ground">
@@ -74,7 +91,15 @@ export function WorkspaceLayout() {
             <div style={{ width: filesWidth }} className="shrink-0 overflow-hidden border-r border-line">
               <FileTree />
             </div>
-            <ResizeHandle axis="x" onMouseDown={onFilesResize} />
+            <ResizeHandle
+              axis="x"
+              label="Resize file tree panel"
+              onMouseDown={onFilesResize}
+              onKeyResize={adjustFilesWidth}
+              valueNow={filesWidth}
+              valueMin={160}
+              valueMax={420}
+            />
           </>
         ) : (
           <button
@@ -92,7 +117,15 @@ export function WorkspaceLayout() {
 
         {!isNarrowInvestigation ? (
           <>
-            <ResizeHandle axis="x" onMouseDown={onInvestigationResize} />
+            <ResizeHandle
+              axis="x"
+              label="Resize investigation panel"
+              onMouseDown={onInvestigationResize}
+              onKeyResize={adjustInvestigationWidth}
+              valueNow={investigationWidth}
+              valueMin={260}
+              valueMax={560}
+            />
             <div style={{ width: investigationWidth }} className="shrink-0 overflow-hidden">
               <InvestigationPanel />
             </div>
@@ -108,7 +141,17 @@ export function WorkspaceLayout() {
         )}
       </div>
 
-      {!ctx.terminalCollapsed && <ResizeHandle axis="y" onMouseDown={onTerminalResize} />}
+      {!ctx.terminalCollapsed && (
+        <ResizeHandle
+          axis="y"
+          label="Resize terminal panel"
+          onMouseDown={onTerminalResize}
+          onKeyResize={adjustTerminalHeight}
+          valueNow={terminalHeight}
+          valueMin={120}
+          valueMax={480}
+        />
+      )}
       <div style={{ height: ctx.terminalCollapsed ? 28 : terminalHeight }} className="shrink-0 border-t border-line">
         {ctx.terminalCollapsed ? (
           <button

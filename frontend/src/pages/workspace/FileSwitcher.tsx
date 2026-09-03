@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useDialogFocusTrap } from "../../hooks/useDialogFocusTrap";
 import { fuzzyMatch } from "./fuzzyMatch";
 import { useWorkspaceContext } from "./WorkspaceContext";
 
@@ -7,10 +8,14 @@ export function FileSwitcher() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  const close = () => setFileSwitcherOpen(false);
+  useDialogFocusTrap(dialogRef, close);
 
   const matches = useMemo(() => {
     const scored = files
@@ -22,14 +27,11 @@ export function FileSwitcher() {
 
   function choose(path: string) {
     openFile(path);
-    setFileSwitcherOpen(false);
+    close();
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setFileSwitcherOpen(false);
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelected((s) => Math.min(matches.length - 1, s + 1));
     } else if (e.key === "ArrowUp") {
@@ -43,7 +45,7 @@ export function FileSwitcher() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-32" onKeyDown={onKeyDown}>
-      <div role="dialog" aria-modal="true" aria-label="Open file" className="w-[480px] border border-line-strong bg-panel">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Open file" className="w-[480px] border border-line-strong bg-panel">
         <input
           ref={inputRef}
           value={query}
@@ -60,6 +62,7 @@ export function FileSwitcher() {
               key={path}
               onClick={() => choose(path)}
               onMouseEnter={() => setSelected(i)}
+              title={path}
               className={
                 "focus-ring block w-full truncate px-3 py-1.5 text-left font-mono text-xs " +
                 (i === selected ? "bg-raised text-ink" : "text-ink-dim")

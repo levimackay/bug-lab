@@ -88,20 +88,31 @@ export function EditorArea() {
                 }
               }}
               className={
-                "focus-ring group flex shrink-0 cursor-pointer items-center gap-2 border-r border-line px-3 py-1.5 font-mono text-xs " +
+                "group flex shrink-0 items-center border-r border-line font-mono text-xs " +
                 (isActive ? "bg-raised text-ink" : "text-ink-dim hover:bg-raised/60")
               }
-              onClick={() => openFile(f.path)}
             >
-              <span>{name}</span>
-              {f.saveState !== "saved" && <span className={"h-1.5 w-1.5 " + (f.saveState === "error" ? "bg-failure" : "bg-warning")} />}
               <button
-                className="focus-ring text-ink-faint hover:text-ink"
+                className="focus-ring flex max-w-[180px] items-center gap-2 py-1.5 pl-3"
+                aria-current={isActive ? "true" : undefined}
+                title={f.path}
+                onClick={() => openFile(f.path)}
+              >
+                <span className="truncate">{name}</span>
+                {f.saveState !== "saved" && (
+                  <>
+                    <span
+                      className={"h-1.5 w-1.5 shrink-0 " + (f.saveState === "error" ? "bg-failure" : "bg-warning")}
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only">{SAVE_LABEL[f.saveState]}</span>
+                  </>
+                )}
+              </button>
+              <button
+                className="focus-ring px-2 py-1.5 text-ink-faint hover:text-ink"
                 aria-label={`Close ${f.path}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  closeFile(f.path);
-                }}
+                onClick={() => closeFile(f.path)}
               >
                 ×
               </button>
@@ -109,9 +120,11 @@ export function EditorArea() {
           );
         })}
       </div>
-      <div className="flex items-center justify-between border-b border-line px-2 py-0.5 font-mono text-2xs text-ink-faint">
-        <span>{activeFile}</span>
-        <span className={SAVE_COLOR[openFiles.find((f) => f.path === activeFile)?.saveState ?? "saved"]}>
+      <div className="flex items-center justify-between gap-2 border-b border-line px-2 py-0.5 font-mono text-2xs text-ink-faint">
+        <span className="truncate" title={activeFile}>
+          {activeFile}
+        </span>
+        <span className={"shrink-0 " + SAVE_COLOR[openFiles.find((f) => f.path === activeFile)?.saveState ?? "saved"]}>
           {SAVE_LABEL[openFiles.find((f) => f.path === activeFile)?.saveState ?? "saved"]}
         </span>
       </div>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useDialogFocusTrap } from "../../hooks/useDialogFocusTrap";
 import { fuzzyMatch } from "./fuzzyMatch";
 import { useWorkspaceContext } from "./WorkspaceContext";
 
@@ -16,12 +17,14 @@ export function CommandPalette() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
 
   const close = () => ctx.setCommandPaletteOpen(false);
+  useDialogFocusTrap(dialogRef, close);
 
   const commands: Command[] = useMemo(() => {
     const list: Command[] = [
@@ -54,10 +57,7 @@ export function CommandPalette() {
   }
 
   function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      close();
-    } else if (e.key === "ArrowDown") {
+    if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelected((s) => Math.min(matches.length - 1, s + 1));
     } else if (e.key === "ArrowUp") {
@@ -71,7 +71,7 @@ export function CommandPalette() {
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 pt-32" onKeyDown={onKeyDown}>
-      <div role="dialog" aria-modal="true" aria-label="Command palette" className="w-[480px] border border-line-strong bg-panel">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-label="Command palette" className="w-[480px] border border-line-strong bg-panel">
         <input
           ref={inputRef}
           value={query}

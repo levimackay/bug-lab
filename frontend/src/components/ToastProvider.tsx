@@ -37,7 +37,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={{ pushError }}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+      <div aria-live="assertive" aria-atomic="false" className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
         {toasts.map((t) => (
           <button
             key={t.id}

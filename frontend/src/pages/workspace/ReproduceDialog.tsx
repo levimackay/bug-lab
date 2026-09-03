@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReproduceResult } from "../../api/types";
+import { useDialogFocusTrap } from "../../hooks/useDialogFocusTrap";
 import { useWorkspaceContext } from "./WorkspaceContext";
 
 export function ReproduceDialog({ onClose }: { onClose: () => void }) {
@@ -9,17 +10,12 @@ export function ReproduceDialog({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<ReproduceResult | null>(null);
   const [running, setRunning] = useState(false);
   const dialogRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
+  useDialogFocusTrap(dialogRef, onClose);
   useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onClose();
-      }
-    }
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+    inputRef.current?.focus();
+  }, []);
 
   async function onConfirm() {
     setRunning(true);
@@ -42,6 +38,7 @@ export function ReproduceDialog({ onClose }: { onClose: () => void }) {
           <label className="flex flex-col gap-1 font-mono text-2xs text-ink-faint">
             Test path
             <input
+              ref={inputRef}
               list="repro-test-files"
               value={path}
               onChange={(e) => setPath(e.target.value)}
@@ -55,7 +52,7 @@ export function ReproduceDialog({ onClose }: { onClose: () => void }) {
           </label>
 
           {result && (
-            <div className="flex flex-col gap-2 border-t border-line pt-3">
+            <div role="status" aria-live="polite" className="flex flex-col gap-2 border-t border-line pt-3">
               <div className={"font-mono text-sm " + (result.reproduced ? "text-success" : "text-failure")}>
                 {result.reproduced ? "✓ BUG REPRODUCED" : `✗ ${result.verdict}`}
               </div>

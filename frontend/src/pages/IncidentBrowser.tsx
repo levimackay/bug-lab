@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api/endpoints";
 import { ApiError } from "../api/http";
 import type { Difficulty, IncidentSummary, Language } from "../api/types";
+import { ErrorState } from "../components/ErrorState";
 import { PageHeader } from "../components/PageHeader";
 import { SeverityDot, severityLabel } from "../components/SeverityDot";
 import { SkeletonRows } from "../components/Skeleton";
@@ -18,26 +19,28 @@ const STATUS_LABEL: Record<IncidentSummary["status"], string> = {
 
 export default function IncidentBrowser() {
   const [incidents, setIncidents] = useState<IncidentSummary[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [difficulty, setDifficulty] = useState<Difficulty | "all">("all");
   const [language, setLanguage] = useState<Language | "all">("all");
   const [status, setStatus] = useState<StatusFilter>("all");
   const { pushError } = useToast();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    let cancelled = false;
+  const load = useCallback(() => {
+    setError(null);
     api
       .incidents()
-      .then((res) => {
-        if (!cancelled) setIncidents(res.incidents);
-      })
+      .then((res) => setIncidents(res.incidents))
       .catch((err: unknown) => {
-        pushError(err instanceof ApiError ? err.message : "Failed to load incidents");
+        const message = err instanceof ApiError ? err.message : "Failed to load incidents";
+        setError(message);
+        pushError(message);
       });
-    return () => {
-      cancelled = true;
-    };
   }, [pushError]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     if (!incidents) return [];
@@ -59,7 +62,9 @@ export default function IncidentBrowser() {
           <Filter label="Status" value={status} onChange={setStatus} options={["unsolved", "in_progress", "solved"]} />
         </div>
 
-        {!incidents ? (
+        {error ? (
+          <ErrorState message={error} onRetry={load} />
+        ) : !incidents ? (
           <SkeletonRows count={10} />
         ) : (
           <table className="w-full border-collapse font-mono text-xs">
