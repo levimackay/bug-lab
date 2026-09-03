@@ -1,0 +1,7 @@
+2026-09-01 03:00:04,112 INFO ingest: starting nightly ingestion: 30000 queued events, 500 ids already on file
+2026-09-01 03:00:04,120 INFO ingest.pipeline: batch complete: 29658 accepted, 342 duplicates
+2026-09-01 03:00:04,120 INFO ingest: nightly ingestion finished in 0.01s (budget 3.00s)
+2026-09-02 03:00:02,825 INFO ingest: starting nightly ingestion: 30000 queued events, 500 ids already on file
+2026-09-02 03:00:10,123 INFO ingest.pipeline: batch complete: 29658 accepted, 342 duplicates
+2026-09-02 03:00:10,123 INFO ingest: nightly ingestion finished in 7.30s (budget 3.00s)
+2026-09-02 03:00:10,123 ERROR ingest: nightly batch took 7.30s, exceeding the 3.00s budget

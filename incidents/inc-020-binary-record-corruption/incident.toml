@@ -1,0 +1,91 @@
+id = "inc-020-binary-record-corruption"
+number = 20
+title = "Fleet Log Desyncs on Accented City Names"
+severity = "high"
+difficulty = "advanced"
+language = "python"
+system = "Fleet Event Log"
+categories = ["data-integrity"]
+tags = ["binary-format", "struct", "utf-8", "off-by-n"]
+
+description = """
+The warehouse loader reads last night's scooter fleet log and rejects the
+batch. The gateway's own log shows it wrote 14 events; the loader's reader
+aborts after the fourth, complaining that a record's header promises 8513
+payload bytes when only 605 bytes are left in the file. Re-running the exact
+same batch produces the exact same failure, at the exact same record, every
+time - this is not a timing fluke.
+
+Batches that only ever contain plain-ASCII status text ("docked at depot bay
+3", "battery 91%") have never once failed. The failures started the same
+week a handful of European depots began appending their own city name to the
+dock/undock message, and every failing batch contains a status line for one
+of those depots.
+"""
+
+symptoms = [
+  "The reader aborts with 'header promises N payload bytes, only M remain in the file' partway through an otherwise normal batch",
+  "The failure always starts on the first record whose message contains an accented character (city names like Zürich, Málaga, São Paulo)",
+  "Batches containing only ASCII status text round-trip with zero errors, no matter how many records",
+  "logs/fleet-telemetry.log shows the writer completed all 14 events before the reader ever ran",
+]
+
+environment = """
+Fleet Event Log
+├── telemetry/format.py   binary header layout (struct format + size)
+├── telemetry/store.py    EventWriter / EventReader for the append-only log
+├── telemetry/fleet.py    tonight's batch of gateway status messages
+├── telemetry/__main__.py python -m telemetry  (writes a batch, reads it back, diffs it)
+└── tests/                round-trip tests using ASCII-only messages
+"""
+
+expected_behavior = "Every event read back from the log has the exact payload string it was written with, regardless of what characters that message contains."
+broken_behavior = "A message containing a multi-byte UTF-8 character desyncs the reader at that record; the rest of the file is misread as garbage or the read aborts outright."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+run = "python -m telemetry"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "Every ASCII-only batch round-trips perfectly. The failures always begin on the first message that uses an accented character. Find the two places in the code that each independently measure that same string, and compare what they count."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "Each record's header carries a number telling the reader how many bytes of payload follow it. Ask exactly where that number comes from, and whether it is guaranteed to match what actually gets written to disk right after it."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "A Python string's len() counts characters. Encoding that same string to UTF-8 can produce more bytes than it has characters. Look at which of those two numbers gets written into the header, and whether it is computed before or after the encoding call."
+cost = 200
+
+[solution]
+files = ["telemetry/store.py"]
+explanation = """
+The writer measured a record's payload length with len(payload) - the
+string's character count - before encoding it, then wrote
+payload.encode("utf-8") right after. For plain ASCII text those two counts
+are always equal, so nothing looked wrong. Any message with a multi-byte
+UTF-8 character (an accented letter, for instance) makes the encoded byte
+count larger than the character count, so the header understates how many
+bytes actually follow. The reader trusts that header, reads too few bytes
+for the record, and leaves the leftover bytes sitting in the file where they
+get reinterpreted as the start of the next record's header - corrupting
+every record after the affected one. The fix measures the length from the
+already-encoded bytes (len(payload_bytes)), after encoding, so the header
+always matches what was actually written.
+"""
+
+[postmortem]
+root_cause = "EventWriter.append() computed the payload-length field from the string's character count before UTF-8-encoding it, instead of from the length of the encoded bytes that were actually written to disk right after the header."
+why_it_happened = "Every message used in development and in the original launch dataset was plain ASCII, where a string's character count and its UTF-8 byte count are identical, so the length-before-encoding shortcut never produced a wrong number until a message contained something outside ASCII."
+why_tests_missed = "The visible suite writes and reads back only ASCII status messages, single-record and multi-record alike, so the header's length field is always correct by coincidence and every round trip matches - the bug needs at least one non-ASCII character in the file to ever produce a wrong length."
+prevention = "Derive a length-prefixed field from the exact bytes about to be written, never from a pre-encoding proxy for that length. A round-trip test that includes one non-ASCII payload, with further records after it, turns this from a coincidence into a guaranteed failure the first time it's run."
+
+[scoring]
+base = 1000
+par_seconds = 1200
+repro_bonus = 175

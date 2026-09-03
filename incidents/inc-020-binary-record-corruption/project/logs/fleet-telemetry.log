@@ -1,0 +1,2 @@
+03:00:01.114 INFO telemetry: wrote 14 events to fleet-events.bin
+03:00:01.114 ERROR telemetry: read failed: record 1061: header promises 8513 payload bytes, only 605 remain in the file

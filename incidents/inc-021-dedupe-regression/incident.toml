@@ -1,0 +1,88 @@
+id = "inc-021-dedupe-regression"
+number = 21
+title = "Nightly Ingestion Crawls to a Halt"
+severity = "high"
+difficulty = "advanced"
+language = "python"
+system = "Ingestion Pipeline"
+categories = ["performance", "algorithms"]
+tags = ["deduplication", "big-o", "quadratic"]
+determinism_runs = 3
+
+description = """
+The nightly ingestion job filters duplicate partner webhook deliveries out
+of the batch before handing the rest to the warehouse loader. It has always
+finished in a fraction of a second. Last night it took over seven seconds
+on the exact same 30,000-event batch as the night before, still produced
+the exact same result (29658 accepted, 342 duplicates), and the job's own
+time budget check flagged it and exited non-zero.
+
+Nothing about the batch size or the dedup logic's output changed between
+the two nights - a code change went out in between them that nobody
+connected to timing, because every test of it passed and every value it
+produced was correct.
+"""
+
+symptoms = [
+  "The nightly batch (30,000 events) went from finishing in about a hundredth of a second to about seven seconds, with no change in batch size",
+  "logs/ingest.log shows the identical result (29658 accepted, 342 duplicates) on both nights - only the elapsed time differs",
+  "python -m ingest prints 'SLOW BATCH' and exits non-zero once the batch exceeds its time budget",
+  "Doubling the batch size roughly quadruples how long the run takes, rather than doubling it",
+]
+
+environment = """
+Ingestion Pipeline
+├── ingest/events.py    synthetic/production event batches (retries included)
+├── ingest/dedupe.py    tracks every event id this pipeline has ever accepted
+├── ingest/pipeline.py  ingest_batch(): filters duplicates out of a batch
+└── ingest/__main__.py  python -m ingest  (runs tonight's batch, times it)
+"""
+
+expected_behavior = "Filtering duplicates out of a batch takes time roughly proportional to the number of events in it, so nightly runtime stays flat as the accumulated history of accepted ids grows."
+broken_behavior = "Filtering duplicates takes time roughly proportional to the square of the number of events, so runtime grows sharply with batch size and blows through the job's time budget well before the batch itself gets especially large."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m ingest"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "Every event is still classified exactly right - accepted or duplicate - on every run. Only the clock is wrong. Look at what work has to happen once per incoming event before it can be accepted."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The 'have we already accepted this id' check gets slower every time it runs, because whatever it checks against keeps growing for the entire length of the batch. Find what that check is actually testing membership against."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Testing whether a value is 'in' a Python list costs time proportional to how long that list already is; testing membership in a set or dict does not. Look at what type the pipeline's running record of accepted ids actually is."
+cost = 200
+
+[solution]
+files = ["ingest/dedupe.py"]
+explanation = """
+The record of every event id this pipeline has ever accepted was backed by
+a plain list. `event_id in seen` scans that list from the front, and it
+runs once for every incoming event against a list that has grown by one
+entry for every event already processed in the batch - an O(n) check
+repeated n times, so the whole batch costs O(n^2). Every value produced was
+still correct; only the cost of computing it wasn't. The fix backs the same
+class with a set instead of a list, so both the membership check and
+recording a newly-accepted id are O(1) on average and the batch as a whole
+is O(n), with no change to what gets accepted, flagged as a duplicate, or
+returned as the updated seen-id list.
+"""
+
+[postmortem]
+root_cause = "The class tracking every event id this pipeline has accepted stored them in a Python list. Its membership check is a linear scan, and it runs once per incoming event against a list that has grown by one entry per event already processed, making the whole batch's dedup pass O(n^2) instead of O(n)."
+why_it_happened = "A refactor wrapped what had been a raw set in a small class to give it a name and a couple of convenience methods, and picked a list as the backing container - it preserves insertion order and behaves identically to a set for every value the tests checked, so the change read as a pure readability improvement with no behavioral difference."
+why_tests_missed = "The visible suite checks correctness - the right ids get accepted, the right ids get flagged as duplicates - on batches of a few dozen or a few hundred events, where a linear scan is fast enough to be invisible. Nothing in the suite measured wall-clock time or ran anything close to a production-sized batch, so an O(n) becoming an O(n^2) had no test in a position to notice."
+prevention = "Any 'have we seen this before' check against something that grows for the life of a batch belongs in a set or dict, never a list - and a test with a wall-clock budget on a production-scale batch, not only a small correctness sample, is what actually catches an accidental O(n^2) before a nightly job does."
+
+[scoring]
+base = 900
+par_seconds = 900
+repro_bonus = 150

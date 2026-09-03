@@ -264,11 +264,27 @@ def _record(req: Request, run_id: str, kind: str, r: ExecResult) -> None:
     req.app.state.db.add_exec(run_id, kind, r)
 
 
-def _exec_response(r: ExecResult | None) -> dict:
+def _trace(ws: Path, *outputs: str) -> dict | None:
+    """Parsed stack trace with frame paths relative to the workspace, so the UI
+    can open them; paths outside the workspace (stdlib, runtime) stay absolute."""
+    st = None
+    for out in outputs:
+        st = runner.parse_stack_trace(out)
+        if st:
+            break
+    if not st:
+        return None
+    prefix = str(ws.resolve()) + "/"
+    for f in st.frames:
+        if f.file.startswith(prefix):
+            f.file = f.file[len(prefix):]
+    return st.to_dict()
+
+
+def _exec_response(ws: Path, r: ExecResult | None) -> dict:
     if r is None:
         return {"exec": None, "stack_trace": None}
-    st = runner.parse_stack_trace(r.stderr) or runner.parse_stack_trace(r.stdout)
-    return {"exec": r.__dict__, "stack_trace": st.to_dict() if st else None}
+    return {"exec": r.__dict__, "stack_trace": _trace(ws, r.stderr, r.stdout)}
 
 
 @router.post("/runs/{run_id}/run")
@@ -277,7 +293,7 @@ def run_app(req: Request, run_id: str):
     r = runner.run_app(req.app.state.sandbox, ws, inc)
     _record(req, run_id, "run", r)
     req.app.state.db.add_event(run_id, "app_run", {"exit_code": r.exit_code, "timed_out": r.timed_out})
-    return _exec_response(r)
+    return _exec_response(ws, r)
 
 
 @router.post("/runs/{run_id}/build")
@@ -287,7 +303,7 @@ def build(req: Request, run_id: str):
     if r is not None:
         _record(req, run_id, "build", r)
         req.app.state.db.add_event(run_id, "build", {"exit_code": r.exit_code})
-    return _exec_response(r)
+    return _exec_response(ws, r)
 
 
 class TestBody(BaseModel):
@@ -304,8 +320,7 @@ def run_tests(req: Request, run_id: str, body: TestBody | None = None):
     _record(req, run_id, "test", tr.exec)
     req.app.state.db.add_event(run_id, "tests_run", {"summary": tr.summary, "target": target})
     out = tr.to_dict()
-    st = runner.parse_stack_trace(tr.exec.stderr) or runner.parse_stack_trace(tr.exec.stdout)
-    out["stack_trace"] = st.to_dict() if st else None
+    out["stack_trace"] = _trace(ws, tr.exec.stderr, tr.exec.stdout)
     return out
 
 

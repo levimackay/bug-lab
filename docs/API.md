@@ -67,7 +67,7 @@ interface ExecResult {
   duration_ms: number; timed_out: boolean; max_rss_kb: number;
 }
 
-interface Frame { file: string; line: number; function: string }
+interface Frame { file: string; line: number; function: string }   // file is workspace-relative when inside the workspace; line 0 = unknown (unsymbolized C frame)
 interface StackTrace { kind: "python" | "node" | "asan" | "ubsan"; header: string; frames: Frame[] }
 
 interface TestResult { name: string; status: "passed" | "failed" | "error" | "skipped"; duration_ms: number; message: string }
