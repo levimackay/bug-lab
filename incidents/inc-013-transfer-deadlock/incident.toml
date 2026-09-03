@@ -1,0 +1,86 @@
+id = "inc-013-transfer-deadlock"
+number = 13
+title = "Settlement Batch Hangs"
+severity = "critical"
+difficulty = "advanced"
+language = "python"
+system = "Settlement Service"
+categories = ["concurrency"]
+tags = ["deadlock", "lock-ordering", "threads"]
+determinism_runs = 10
+
+description = """
+The nightly settlement batch moves money between merchant accounts in
+parallel. Twice this week it stopped making progress part-way through: CPU
+dropped to zero, the audit log went quiet, and the batch had to be killed by
+the on-call engineer at 04:10. Both nights the last two audit entries were a
+transfer from ACME to BOLT and a transfer from BOLT to ACME, started within
+the same millisecond.
+
+Every account has its own lock so unrelated transfers can proceed in
+parallel. A transfer locks the source account, records an audit row, then
+locks the destination account and moves the balance. Single transfers, and
+batches where no two transfers touch the same pair of accounts, complete
+fine.
+"""
+
+symptoms = [
+  "The batch stops with two worker threads alive and idle; it never finishes and never crashes",
+  "Both stuck transfers are between the same two accounts, in opposite directions",
+  "The audit log shows both transfers 'started' and neither 'completed'",
+  "Running the same transfers one after another works",
+]
+
+environment = """
+Settlement Service
+├── ledger/accounts.py    account balances, one lock per account
+├── ledger/transfers.py   TransferService: transfer() and run_batch()
+├── ledger/audit.py       SQLite audit trail
+├── ledger/__main__.py    python -m ledger  (replays Tuesday's batch)
+└── tests/                unit tests for single transfers
+"""
+
+expected_behavior = "Every batch completes; concurrent transfers between the same accounts in opposite directions both finish and the balances add up."
+broken_behavior = "Two opposing transfers between the same accounts can each wait forever for the lock the other holds, and the batch hangs."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m ledger"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "Nothing crashed and nothing is busy. When two threads are alive but idle forever, each is waiting for something the other has."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "Each transfer holds one account's lock while it does real work, then asks for a second lock. Write down which lock each of the two stuck transfers holds and which it wants."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "The order in which a transfer acquires its two locks depends on which account is the source. Two transfers in opposite directions acquire them in opposite orders."
+cost = 200
+
+[solution]
+files = ["ledger/transfers.py"]
+explanation = """
+transfer() locked the source account first and the destination second, so
+ACME→BOLT held ACME and waited for BOLT while BOLT→ACME held BOLT and
+waited for ACME: a lock-ordering deadlock. The fix acquires both account
+locks in a single global order (sorted by account id) regardless of
+direction, so any two transfers that touch the same accounts always take
+the locks in the same sequence and one of them simply waits for the other.
+"""
+
+[postmortem]
+root_cause = "transfer() acquired the two account locks in caller-dependent order (source, then destination). Two transfers between the same accounts in opposite directions each held one lock and waited for the other."
+why_it_happened = "Per-account locks were introduced for parallelism and each transfer was written as if it were alone: lock what I read first, then lock what I write. Nobody defined a global lock order because a single transfer never needed one."
+why_tests_missed = "The tests ran transfers one at a time or in parallel between unrelated accounts. No test ran two transfers between the same pair of accounts concurrently, which is the only shape that deadlocks."
+prevention = "Any code that takes more than one lock must take them in a fixed global order. Add a concurrency test that runs opposing transfers behind a barrier with a join timeout, so a hang shows up as a failure instead of a stuck CI job."
+
+[scoring]
+base = 1000
+par_seconds = 1500
+repro_bonus = 200

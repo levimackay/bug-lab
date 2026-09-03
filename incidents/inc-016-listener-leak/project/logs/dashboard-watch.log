@@ -1,0 +1,9 @@
+08:02:11 INFO ticket-service: replaying dashboard watch burst, 500 requests
+08:02:11 WARN ticket-service: (node:63509) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 11 ticket:update listeners added to [EventEmitter]. MaxListeners is 10. Use emitter.setMaxListeners() to increase limit
+08:02:11 INFO ticket-service: requests handled: 500
+08:02:11 INFO ticket-service: updated in time:  0
+08:02:11 INFO ticket-service: timed out:        500
+08:02:11 INFO ticket-service: listeners left on ticket:update: 500
+08:02:11 ERROR ticket-service: 500 listeners still attached to ticketBus after every request finished
+08:41:52 WARN ticket-service: (node:63509) MaxListenersExceededWarning: Possible EventEmitter memory leak detected. 511 ticket:update listeners added to [EventEmitter]. MaxListeners is 10.
+08:41:52 ERROR ticket-service: process exited with RSS 340MB after 40 minutes, restarted by the supervisor

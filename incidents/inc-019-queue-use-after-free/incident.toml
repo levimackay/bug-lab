@@ -1,0 +1,84 @@
+id = "inc-019-queue-use-after-free"
+number = 19
+title = "Dispatcher Crashes On The First Event"
+severity = "critical"
+difficulty = "advanced"
+language = "c"
+system = "Order Dispatcher"
+categories = ["memory"]
+tags = ["use-after-free", "queue", "ownership"]
+
+description = """
+The order dispatcher pushes events onto a FIFO as they happen and pops them
+back off, in order, to hand to the shipping notifier. It has run this way
+since launch. Today's deploy crashes on the very first event, every time,
+on every host.
+
+Nothing about the event payloads is unusual - short strings like
+"order.created:8841". The crash isn't intermittent and doesn't depend on
+load; it happens the instant the dispatcher tries to do anything with the
+first message it pops.
+"""
+
+symptoms = [
+  "The dispatcher aborts immediately after popping its first message",
+  "The crash happens whether the queue holds one event or many",
+  "mq_pop() itself returns without complaint; the crash is in whatever reads its result",
+  "The Stack Trace tab shows the crash address freed just a few frames up the same call stack",
+]
+
+environment = """
+Order Dispatcher
+├── src/queue.h    message_queue_t and the push/pop/size API
+├── src/queue.c    singly linked FIFO
+├── src/main.c     pushes three events, dispatches them in order
+└── tests/         unit tests that check queue bookkeeping only
+"""
+
+expected_behavior = "The pointer mq_pop() returns stays valid for the caller to read (and free()) after the call returns."
+broken_behavior = "mq_pop() returns a pointer into memory it has already freed; the first read of that pointer's contents touches freed memory."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+build = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -o build/app src/*.c"
+test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/tests src/queue.c tests/test_queue.c && ./build/tests"
+hidden_test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/hidden src/queue.c .buglab/hidden/test_hidden.c && ./build/hidden"
+test_one = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/one src/queue.c {file} && ./build/one"
+run = "./build/app"
+
+[[hints]]
+level = "direction"
+text = "mq_pop() and mq_size() both agree the message is gone from the queue. Ask what 'gone from the queue' does to the memory the returned pointer points into."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The payload isn't a separate allocation - it lives inside the node struct itself. What does that mean for anything still pointing at the payload after the node is released?"
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at the order of operations right before the return: what gets captured, what gets freed, and in which order, relative to what gets handed back to the caller."
+cost = 200
+
+[solution]
+files = ["src/queue.c"]
+explanation = """
+mq_pop() captured node->payload as a pointer into the node itself, called
+free(node), and returned that now-dangling pointer. Since the payload is an
+embedded array rather than its own allocation, freeing the node invalidates
+every byte of it. The fix copies the payload out with strdup() before
+freeing the node, so the caller gets a live allocation it owns and must
+free(), instead of a pointer into memory that no longer belongs to anyone.
+"""
+
+[postmortem]
+root_cause = "mq_pop() returned a pointer into the node's embedded payload array after already free()-ing that node, handing the caller a dangling pointer that is invalid the instant the call returns."
+why_it_happened = "The payload was stored inline in the node for locality instead of as a separate allocation, and mq_pop() was written as if payload were an independent object that would outlive the node - it does not, they are the same allocation."
+why_tests_missed = "The visible tests check mq_size() and that the returned pointer is non-NULL, but never read what it points to. The bug only manifests on the first byte read of the returned payload, and nothing in the suite performs one."
+prevention = "When a function frees an object and returns something derived from it, ask whether that something outlives the free - a pointer into an embedded field never does. Copy the data out first, or change the ownership model so the caller receives the whole allocation instead of a pointer into part of one. A test that actually reads the returned value, not just checks it is non-NULL, would have caught this immediately under AddressSanitizer."
+
+[scoring]
+base = 1150
+par_seconds = 1100
+repro_bonus = 150

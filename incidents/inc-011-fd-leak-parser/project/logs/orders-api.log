@@ -1,0 +1,11 @@
+2026-08-30T03:14:00Z INFO  orders-api: starting, watching config/service.conf for changes
+2026-08-30T03:14:00Z INFO  orders-api: config reload #1 ok (5 keys, service_name=orders-api)
+2026-08-30T03:14:00Z INFO  orders-api: config reload #2 ok
+2026-08-30T03:14:00Z INFO  orders-api: config reload #3 ok
+2026-08-30T03:14:01Z INFO  orders-api: config reload #4 ok
+...
+2026-08-30T03:18:47Z INFO  orders-api: config reload #253 ok
+2026-08-30T03:18:47Z ERROR orders-api: config: cannot open config/service.conf: Too many open files
+2026-08-30T03:18:47Z ERROR orders-api: reload #254: config_load(config/service.conf) failed
+2026-08-30T03:18:47Z ERROR orders-api: config reload failed after repeated attempts, giving up
+2026-08-30T03:18:47Z ERROR orders-api: process exiting with status 1

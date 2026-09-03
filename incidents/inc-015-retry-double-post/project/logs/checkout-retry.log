@@ -1,0 +1,6 @@
+11:47:03 INFO order-client: POST /orders cus_2201 RUG-4 x1
+11:47:03 WARN order-client: request timed out after 100ms, retrying once
+11:47:03 INFO order-client: createOrder resolved with orderId 91e43253-959b-41a8-9f20-6a6f7550ae30
+11:47:03 INFO order-client: orders on server: 2
+11:47:03 ERROR order-client: expected exactly 1 order for this checkout, server has 2
+11:47:04 WARN order-api: two orders received for cus_2201 within 200ms, RUG-4 x1 each

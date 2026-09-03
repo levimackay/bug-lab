@@ -41,7 +41,12 @@ class TestRun:
 
     @property
     def ok(self) -> bool:
-        return bool(self.tests) and all(t.status in ("passed", "skipped") for t in self.tests) and not self.exec.timed_out
+        return (
+            bool(self.tests)
+            and not self.parse_error
+            and all(t.status in ("passed", "skipped") for t in self.tests)
+            and not self.exec.timed_out
+        )
 
     def to_dict(self) -> dict:
         return {
@@ -190,13 +195,19 @@ def parse_junit(xml: str) -> tuple[list[TestResult], str]:
 
 
 TAP_LINE = re.compile(r"^(not ok|ok)\s+(\d+)\s*-?\s*(.*)$")
+TAP_PLAN = re.compile(r"^(\d+)\.\.(\d+)$")
 
 
 def parse_tap(text: str) -> tuple[list[TestResult], str]:
     out: list[TestResult] = []
+    planned: int | None = None
     lines = text.splitlines()
     for i, line in enumerate(lines):
-        m = TAP_LINE.match(line.strip())
+        stripped = line.strip()
+        if planned is None and (pm := TAP_PLAN.match(stripped)):
+            planned = int(pm.group(2))
+            continue
+        m = TAP_LINE.match(stripped)
         if not m:
             continue
         ok, _, name = m.groups()
@@ -219,6 +230,8 @@ def parse_tap(text: str) -> tuple[list[TestResult], str]:
         out.append(TestResult(name=name or f"test {m.group(2)}", status=status, duration_ms=0, message=message))
     if not out:
         return [], "no TAP output found (test binary crashed or did not print results)"
+    if planned is not None and len(out) < planned:
+        return out, f"incomplete TAP output: {len(out)}/{planned} tests reported (binary likely crashed mid-run)"
     return out, ""
 
 

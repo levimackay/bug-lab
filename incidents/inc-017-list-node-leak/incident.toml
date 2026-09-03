@@ -1,0 +1,83 @@
+id = "inc-017-list-node-leak"
+number = 17
+title = "Reindex Worker Grows Without Bound"
+severity = "high"
+difficulty = "advanced"
+language = "c"
+system = "Reindex Worker"
+categories = ["memory"]
+tags = ["memory-leak", "linked-list", "queue"]
+
+description = """
+The reindex worker keeps a small in-memory queue of jobs between scheduling
+and processing: push on arrival, remove once done. Queue depth sits at zero
+between bursts, the way it always has. RSS does not.
+
+Ops noticed the worker's memory climbing steadily over days with no
+corresponding growth in queue depth or job volume, and restarting it is now
+a weekly ritual instead of a never. The worker's own startup self-check,
+which pushes and removes ten thousand synthetic jobs and expects the heap to
+come back to where it started, has started failing in CI.
+"""
+
+symptoms = [
+  "RSS grows steadily over the life of the process while queue_size() reports 0",
+  "The startup self-check (10,000 push/remove cycles) reports the live heap did not return to its starting size",
+  "A single push+remove, or a handful, never shows any measurable growth",
+  "queue_remove() reports success (returns 1) for every job it is asked to remove",
+]
+
+environment = """
+Reindex Worker
+├── src/queue.h    queue_t and the push/remove/peek/size API
+├── src/queue.c    singly linked list backing the queue
+├── src/main.c     10,000-cycle startup self-check
+└── tests/         functional unit tests, a few dozen jobs each
+"""
+
+expected_behavior = "queue_remove() fully releases a job's memory. Pushing and removing any number of jobs leaves the live heap back where it started."
+broken_behavior = "queue_remove() unlinks the job from the list and frees its name, but the node struct itself is never released, so every remove leaks one node's worth of memory."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+build = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -o build/app src/*.c"
+test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/tests src/queue.c tests/test_queue.c && ./build/tests"
+hidden_test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/hidden src/queue.c .buglab/hidden/test_hidden.c && ./build/hidden"
+test_one = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/one src/queue.c {file} && ./build/one"
+run = "./build/app"
+
+[[hints]]
+level = "direction"
+text = "queue_size() and the id lookups all agree the job is gone. Check what 'gone from the list' actually cost in terms of memory, not bookkeeping."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "A node owns two things: the string it copied and the block it lives in. Removing a job releases exactly one of them."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Read queue_remove() next to queue_destroy(). Both walk nodes on the way out; one of them frees fewer things per node than the other."
+cost = 200
+
+[solution]
+files = ["src/queue.c"]
+explanation = """
+queue_remove() unlinked the node and freed node->name, but never freed the
+node struct itself - it fell out of the list with nothing left pointing to
+it, so it was unreachable but never released. Adding free(node) alongside
+the existing free(node->name) releases both halves of what queue_push()
+allocated.
+"""
+
+[postmortem]
+root_cause = "queue_remove() freed the node's owned string but not the node struct, so every successful remove leaked exactly one job_node_t."
+why_it_happened = "queue_push() allocates a node and then its name; queue_remove() was written to undo the name allocation first and the author moved on before adding the matching free for the node itself, and nothing forced the two allocations in push to be torn down as a pair in remove."
+why_tests_missed = "The visible tests each exercise a handful of jobs, so a few dozen leaked nodes are far too small to notice against the process's normal heap usage. The leak only becomes visible at the scale of thousands of cycles."
+prevention = "Every allocation in an add path needs a matching free on every corresponding remove path, and that pairing is worth stating in a comment or asserting directly. A burst test that pushes and removes far more items than any single test would need, and checks the heap returns to its starting point, catches a per-operation leak that unit-scale tests cannot."
+
+[scoring]
+base = 1100
+par_seconds = 1200
+repro_bonus = 150

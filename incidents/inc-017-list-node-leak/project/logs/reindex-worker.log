@@ -1,0 +1,6 @@
+2026-08-30T04:02:11Z INFO  reindex-worker: starting heap self-check (10000 push/remove cycles)
+2026-08-30T04:02:11Z INFO  reindex-worker: live heap before: 13214 bytes
+2026-08-30T04:02:11Z INFO  reindex-worker: live heap after:  253214 bytes
+2026-08-30T04:02:11Z INFO  reindex-worker: delta over 10000 push/remove cycles: 240000 bytes
+2026-08-30T04:02:11Z ERROR reindex-worker: job queue leaked memory across the burst (delta 240000 > 200000)
+2026-08-30T04:02:11Z ERROR reindex-worker: self-check failed, exiting 1

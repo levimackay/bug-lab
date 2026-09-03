@@ -1,0 +1,17 @@
+2026-08-31T14:02:03Z INFO  badge-printer: printing badge for roster entry #4021
+=================================================================
+==73494==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x606000000294 at pc 0x0001016faa20 bp 0x00016ee55b60 sp 0x00016ee55310
+WRITE of size 57 at 0x606000000294 thread T0
+    #0 0x0001016faa1c in strcpy+0x458 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x3aa1c)
+    #1 0x000100fa8a24 in badge_create badge.c:14
+    #2 0x000100fa8e9c in main main.c:30
+
+0x606000000294 is located 0 bytes after 52-byte region [0x606000000260,0x606000000294)
+allocated by thread T0 here:
+    #0 0x000101701164 in malloc+0x78 (libclang_rt.asan_osx_dynamic.dylib:arm64e+0x41164)
+    #1 0x000100fa8884 in badge_create badge.c:8
+    #2 0x000100fa8e9c in main main.c:30
+
+SUMMARY: AddressSanitizer: heap-buffer-overflow badge.c:14 in badge_create
+==73494==ABORTING
+2026-08-31T14:02:03Z ERROR badge-printer: process exited with signal 6 (abort)

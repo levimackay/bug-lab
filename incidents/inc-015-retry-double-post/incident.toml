@@ -1,0 +1,88 @@
+id = "inc-015-retry-double-post"
+number = 15
+title = "Slow Order API Response Produced a Duplicate Order"
+severity = "high"
+difficulty = "advanced"
+language = "typescript"
+system = "Order API Client"
+categories = ["networking"]
+tags = ["retry", "idempotency", "timeout"]
+
+description = """
+Customer cus_2201 was charged and shipped for two RUG-4 rugs on an order
+placed once. The checkout log shows a single call to place the order: it
+timed out after 100ms, the client retried, and the retry succeeded. The
+Order API's own log shows two separate orders created for that customer
+within 200ms of each other, both RUG-4 x1.
+
+The client already sends an Idempotency-Key with every create request
+specifically so a retry after a timeout can't double-book an order the
+first attempt actually got through. It's on every request in the access
+log. It's just not the same key twice.
+"""
+
+symptoms = [
+  "a create that times out and retries results in two orders on the API side, not one",
+  "each of the two orders carries a different Idempotency-Key in the API's access log",
+  "a create that succeeds on the first try, no timeout, never duplicates",
+  "the Order API's own idempotency handling works correctly when tested directly with a fixed, repeated key",
+]
+
+environment = """
+Order API Client
+├── src/httpClient.ts     shared JSON POST wrapper with a timeout/TimeoutError
+├── src/orderApiServer.ts stand-in Order API used here and in the tests
+├── src/orderClient.ts    createOrder(): posts to /orders, retries once on timeout
+├── src/main.ts           node src/main.ts  (reproduces a slow-but-successful create)
+└── tests/                unit tests
+"""
+
+expected_behavior = "A create that times out and is retried results in exactly one order, because the retry carries the same Idempotency-Key as the original attempt."
+broken_behavior = "The retry carries a different Idempotency-Key than the original attempt, so the API has no way to tell the retry apart from a brand new order."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "node src/main.ts"
+test = "node --test"
+
+[[hints]]
+level = "direction"
+text = "The Idempotency-Key mechanism itself works, proven directly against the API. The problem is what value ends up in that header on the second request."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "createOrder makes the request through a small helper it calls once for the original attempt and again for the retry. Ask what's computed inside that helper versus what's computed once, before either call."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Something that's supposed to identify one logical create, shared across every attempt at it, is instead being generated fresh at the point where the request actually goes out."
+cost = 200
+
+[solution]
+files = ["src/orderClient.ts"]
+explanation = """
+createOrder built its retryable request as a closure, `attempt`, that calls
+`randomUUID()` to produce the Idempotency-Key every time it runs. The
+mechanism for sending the key was correct; the key itself was recomputed on
+each call to `attempt`, so the original request and the retry it triggered
+carried two different, unrelated keys. To the Order API they looked like
+two unrelated creates, because as far as it could tell, they were.
+
+The fix generates the Idempotency-Key once, before either request is made,
+and captures it in the closure so both the original attempt and any retry
+send the identical value. The API's existing dedup-by-key logic, which
+already worked correctly, then does the rest.
+"""
+
+[postmortem]
+root_cause = "The Idempotency-Key was generated inside the retryable request closure instead of once per logical createOrder call, so the original attempt and its retry each computed and sent a different key."
+why_it_happened = "The header was added correctly and the retry logic was added correctly; they were just composed in the wrong order. Putting `randomUUID()` inside the function that builds each request reads naturally, and there is nothing that fails, warns, or looks wrong about it in isolation, since a single request in isolation only ever calls it once."
+why_tests_missed = "Every existing test hit an Order API that answered quickly, so no test ever triggered a timeout, which meant the retry path, and the second call to the request closure, never ran. A create that only ever fires once can't reveal that the value inside it isn't stable across calls."
+prevention = "Anything meant to identify one logical operation across retries, an idempotency key, a request id, a trace id, must be computed once outside the retryable unit, never inside it. Add a test that forces the retry path with a deliberately slow-but-successful peer, and assert on the peer's own record count, not just on what the client returns."
+
+[scoring]
+base = 950
+par_seconds = 1100
+repro_bonus = 160

@@ -25,7 +25,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from engine import runner, workspace  # noqa: E402
-from engine.incidents import Incident, load_all  # noqa: E402
+from engine.incidents import INCIDENTS_DIR, Incident, load_all, load_incident  # noqa: E402
 from engine.sandbox import SeatbeltSandbox  # noqa: E402
 
 
@@ -88,8 +88,17 @@ def verify(inc: Incident, sb: SeatbeltSandbox) -> list[str]:
 
 
 def main(argv: list[str]) -> int:
-    incidents = load_all()
-    wanted = argv[1:] or list(incidents)
+    requested = argv[1:]
+    if requested:
+        # Load only the requested directories. A full load_all() scans every
+        # directory under incidents/, which fails outright if another
+        # in-progress incident (e.g. an author working concurrently) hasn't
+        # written its incident.toml yet; verifying specific ids shouldn't
+        # depend on the rest of the tree being complete.
+        incidents = {iid: load_incident(INCIDENTS_DIR / iid) for iid in requested}
+    else:
+        incidents = load_all()
+    wanted = requested or list(incidents)
     sb = SeatbeltSandbox()
     bad = 0
     for iid in wanted:

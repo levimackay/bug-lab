@@ -1,0 +1,85 @@
+id = "inc-018-buffer-overflow-name"
+number = 18
+title = "Badge Printer Crashes On Long Names"
+severity = "high"
+difficulty = "advanced"
+language = "c"
+system = "Badge Printer"
+categories = ["memory"]
+tags = ["buffer-overflow", "strcpy", "untrusted-input"]
+
+description = """
+The badge printer turns each row of the roster upload into an attendee
+badge: id, title, and whatever name the row contains. It has printed
+thousands of badges without incident, right up until this year's vendor
+sent a roster where a few rows had two names pasted into one field.
+
+The printer now dies partway through that file instead of printing a badge
+with an oversized name and moving on. Ops needs it to survive a messy
+upload, not require operations to hand-edit vendor data before every print
+run.
+"""
+
+symptoms = [
+  "The printer aborts instead of exiting cleanly when it reaches a long name",
+  "Short and medium-length names print correctly, every time",
+  "The crash reproduces on the exact row with the long name, not before it",
+  "The Stack Trace tab points at the call that copies the name into the badge",
+]
+
+environment = """
+Badge Printer
+├── src/badge.h    badge_t and the create/format/free API
+├── src/badge.c    badge_t allocation and field population
+├── src/main.c     prints the badge for data/roster.txt
+├── data/          roster.txt, the untrusted input
+└── tests/         unit tests using short, well-behaved names
+"""
+
+expected_behavior = "A name longer than the badge's name field is truncated to fit; badge_create() never writes past what it allocated."
+broken_behavior = "A name at or past the field's capacity overruns the allocation it is copied into, corrupting adjacent memory (or crashing outright under AddressSanitizer)."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+build = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -o build/app src/*.c"
+test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/tests src/badge.c tests/test_badge.c && ./build/tests"
+hidden_test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/hidden src/badge.c .buglab/hidden/test_hidden.c && ./build/hidden"
+test_one = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/one src/badge.c {file} && ./build/one"
+run = "./build/app"
+
+[[hints]]
+level = "direction"
+text = "Every test name in the suite happens to be short. What would a name right at, or past, the field's capacity do differently?"
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "badge_t has a fixed-size name field and something is copying an arbitrary-length string into it. Look for where that copy has no length check at all."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Compare how the title field is populated to how the name field is populated in badge_create() - one of the two calls knows its destination's size and one does not."
+cost = 200
+
+[solution]
+files = ["src/badge.c"]
+explanation = """
+badge_create() populated title with snprintf() bounded to BADGE_TITLE_LEN,
+but copied name with a plain strcpy(), which writes however many bytes the
+source has regardless of what name[] can hold. Since name is the last field
+of a heap-allocated struct, a name at or past its capacity writes past the
+allocation. Switching to snprintf(b->name, BADGE_NAME_LEN, "%s", name)
+truncates instead of overrunning, the same way title is already handled.
+"""
+
+[postmortem]
+root_cause = "badge_create() copied the untrusted name field with strcpy() into a fixed 32-byte buffer with no length check, so any name at or past that length wrote past the end of the heap allocation."
+why_it_happened = "title was written with a bounded snprintf() from the start; name was added the same way title was originally written, before the size check was, and nobody carried the same pattern over."
+why_tests_missed = "Every existing test used a short, well-behaved name because that's what the test author had on hand. Nothing in the suite exercised the one dimension - input length relative to the field - that the bug depends on."
+prevention = "Any copy into a fixed-size field needs the same bounded form regardless of who else copies into a neighboring field correctly; grep for strcpy/sprintf/strcat as a matter of course when touching a struct with fixed-size members. A test with an intentionally oversized input, run under AddressSanitizer, turns silent corruption into an immediate, attributable failure."
+
+[scoring]
+base = 1100
+par_seconds = 1100
+repro_bonus = 150

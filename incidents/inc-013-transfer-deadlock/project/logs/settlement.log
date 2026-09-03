@@ -1,0 +1,12 @@
+02:00:00.014 INFO ledger: settlement batch 2026-09-01 loaded, 4 transfers
+02:00:00.021 INFO ledger.transfers: transfer T-3103 CRUX->DELTA 980.50
+02:00:00.027 INFO ledger.transfers: transfer T-3104 DELTA->ACME 75.00
+04:10:33.502 WARNING ledger: batch killed by operator after 7833s; 2 transfers still running (T-3101, T-3102)
+04:10:33.503 WARNING ledger: audit trail T-3101: ['started']
+04:10:33.503 WARNING ledger: audit trail T-3102: ['started']
+02:00:00.011 INFO ledger: settlement batch 2026-08-30 loaded, 4 transfers
+02:00:00.019 INFO ledger.transfers: transfer T-3089 CRUX->DELTA 410.00
+02:00:00.024 INFO ledger.transfers: transfer T-3090 DELTA->ACME 75.00
+04:09:58.877 WARNING ledger: batch killed by operator after 7798s; 2 transfers still running (T-3087, T-3088)
+04:09:58.878 WARNING ledger: audit trail T-3087: ['started']
+04:09:58.878 WARNING ledger: audit trail T-3088: ['started']

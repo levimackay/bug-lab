@@ -1,0 +1,89 @@
+id = "inc-016-listener-leak"
+number = 16
+title = "Ticket Service Restarts Itself Every 40 Minutes"
+severity = "high"
+difficulty = "advanced"
+language = "javascript"
+system = "Ticket Live Updates"
+categories = ["memory", "resources"]
+tags = ["event-emitter", "listener-leak", "long-polling"]
+determinism_runs = 20
+
+description = """
+The supervisor has been restarting the ticket service every 30-40 minutes
+for the past two days, RSS climbing until it trips the memory limit.
+Nothing in the deploy history lines up with when it started. CPU is flat,
+the request rate is normal, and heap dumps taken right after a restart look
+fine.
+
+The dashboard's long-poll endpoint, the one agents leave open while a
+ticket sits in their queue, is the thing running continuously in the
+background between restarts. Node has been logging
+'MaxListenersExceededWarning: Possible EventEmitter memory leak detected'
+against the ticket bus since before anyone started looking at this.
+"""
+
+symptoms = [
+  "the process's resident memory climbs steadily and never comes back down between garbage collections",
+  "'MaxListenersExceededWarning' against the ticket update bus appears in the log and the count in the message only ever goes up",
+  "a single dashboard watch that gets a real update well before its timeout behaves correctly and leaves no trace behind",
+  "a single dashboard watch that times out also reports the correct result to its caller",
+]
+
+environment = """
+Ticket Live Updates
+├── src/ticketBus.js             shared EventEmitter every watch subscribes to
+├── src/waitForTicketUpdate.js   resolves on the next matching update or a timeout
+├── src/main.js                  node src/main.js  (replays a burst of dashboard watches)
+└── tests/                       unit tests
+"""
+
+expected_behavior = "Once a watch resolves, for either reason, its listener is removed from the ticket bus. The bus's listener count returns to whatever it was before the watch started."
+broken_behavior = "A watch that resolves by timing out leaves its listener attached to the bus forever; only a watch that resolves via a matching update cleans up after itself."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "node src/main.js"
+test = "node --test"
+
+[[hints]]
+level = "direction"
+text = "A watch that gets a real update cleans up fine. A watch that times out is the one still on the bus afterward. The two paths to 'resolved' aren't doing the same amount of cleanup."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The listener that's added to the bus removes itself, but only from inside its own callback. Ask what removes it when that callback never gets a chance to run."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "There are two ways this promise settles: the event fires, or the timer fires. Both need to detach the same listener; only one of them currently does."
+cost = 200
+
+[solution]
+files = ["src/waitForTicketUpdate.js"]
+explanation = """
+waitForTicketUpdate registered `onUpdate` on the bus, and `onUpdate` removed
+itself with `ticketBus.off(...)` the moment it ran. That only happens on the
+success path. When the timeout fired first, the promise resolved with
+`{ status: "timeout" }` directly from the `setTimeout` callback, which never
+touched the listener, so `onUpdate` stayed registered on the bus
+indefinitely, one per watch that ever timed out.
+
+The fix gives both settlement paths, the matching update and the timeout, a
+single shared `cleanup()` that removes the listener and clears the timer,
+and calls it before resolving either way. Whichever path resolves first now
+always detaches the listener the other path would have left behind.
+"""
+
+[postmortem]
+root_cause = "The event listener registered by waitForTicketUpdate only removed itself from inside its own callback, so it was only ever detached when the ticket update it was waiting for actually arrived. The timeout branch resolved the promise without going anywhere near the listener, leaving it attached to the shared bus for the lifetime of the process."
+why_it_happened = "The success path was written first and is the one that's easy to picture: the update comes in, so of course the code that reacts to it also tears itself down. The timeout branch was added afterward as the 'nothing happened' case, and cleanup reads like something that belongs to handling an event, not to giving up on one, so it wasn't obviously this callback's job too."
+why_tests_missed = "The tests that exercised the timeout path only checked the promise's resolved value, `{ status: 'timeout' }`, which is correct regardless of whether the listener was removed. The test that did check listener cleanup only ever exercised the success path, where cleanup happens to work. No test watched the bus's listener count across a watch that timed out."
+prevention = "Whenever a resource is acquired for the duration of an operation that can finish more than one way, success, failure, timeout, cancellation, write one teardown function and call it from every exit path, not one teardown embedded in only the happy path. Add a test that asserts the resource count returns to baseline after the unhappy path specifically, not just after the happy one."
+
+[scoring]
+base = 1050
+par_seconds = 1300
+repro_bonus = 180

@@ -1,0 +1,91 @@
+id = "inc-014-rate-limiter-overrun"
+number = 14
+title = "Payments Client Blew Through Its Rate Limit"
+severity = "critical"
+difficulty = "advanced"
+language = "typescript"
+system = "Payments Gateway Client"
+categories = ["concurrency"]
+tags = ["rate-limiting", "check-then-act", "async"]
+determinism_runs = 20
+
+description = """
+The payments API disconnects any client that sends more than 5 requests in
+a billing window; that limit exists precisely so our client never does this.
+This morning a checkout-page bug retried every pending order at once
+instead of one at a time. 20 orders went out in one burst. All 20 were
+charged. The payments API reset the connection a second later and flagged
+storefront-01 for a manual review.
+
+The rate limiter is supposed to make bursts like this impossible regardless
+of what the checkout page does: it has a fixed budget of 5 tokens per
+window and refuses once they're spent. Called one request at a time, it
+does exactly that.
+"""
+
+symptoms = [
+  "a burst of 20 concurrent charge attempts against a capacity-5 limiter charged all 20",
+  "calling the client one request at a time, waiting for each to finish, throttles correctly at 5",
+  "the limiter's own token count settles at a sane value after the burst; nothing looks corrupted at rest",
+  "the audit log has one entry per attempt, correctly, so every charge did get recorded",
+]
+
+environment = """
+Payments Gateway Client
+├── src/rateLimiter.ts     token-bucket budget for outbound calls
+├── src/auditLog.ts        compliance log write before a token is spent
+├── src/paymentsClient.ts  charges an order, throttling via the limiter
+├── src/main.ts            node src/main.ts  (replays the retry-storm burst)
+└── tests/                 unit tests
+"""
+
+expected_behavior = "However many callers ask for a token at once, at most `capacity` of them are ever granted one before the window resets."
+broken_behavior = "Concurrent callers all observe the same available balance and are all granted a token, so a burst can spend far more than the window's budget."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "node src/main.ts"
+test = "node --test"
+
+[[hints]]
+level = "direction"
+text = "One at a time it throttles correctly. All at once it doesn't. What can concurrent callers see that a sequence of solo callers never could?"
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "acquire() isn't purely synchronous; it awaits something before it finishes. Ask what every concurrent caller has already done by the time the first one's await resolves."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at the order of operations inside acquire(): what it reads, what it awaits, and what it writes, and which of those three happens before which."
+cost = 200
+
+[solution]
+files = ["src/rateLimiter.ts"]
+explanation = """
+acquire() checked `this.tokens`, then awaited the audit-log write, and only
+after that write resolved did it decrement `this.tokens`. JavaScript runs an
+async function synchronously up to its first await, so when 20 callers all
+called acquire() in the same tick, all 20 ran their check against the
+still-full bucket before any of them reached the decrement. Every one of
+them saw tokens available and returned true.
+
+The fix decrements the token count immediately after the check succeeds,
+before awaiting the audit-log write. The read and the write of `this.tokens`
+now happen back to back with no `await` between them, so no other call can
+interleave between deciding to grant a token and actually spending it. The
+audit write can still happen afterward; it no longer gates the decision.
+"""
+
+[postmortem]
+root_cause = "acquire() performed check-then-act on `this.tokens` with an `await` sitting between the check and the decrement. Every concurrent call runs synchronously up to that await, so any number of callers can pass the check before the first one's decrement has a chance to run."
+why_it_happened = "Recording the audit-log entry before decrementing reads naturally as 'confirm the attempt is recorded, then spend the token' and matches how a synchronous, single-caller version of this code would be written. Nothing about the language forces you to notice that awaiting anything at all hands control back to the event loop, where every other pending caller gets to run its own check against the same unchanged state."
+why_tests_missed = "Every existing test called acquire() one request at a time, awaiting each result before making the next call. With no second call in flight while the first is still awaiting, there's nothing to race: the check always sees the correct, already-updated count. The bug only exists when multiple calls overlap, which a sequential test can never produce."
+prevention = "Treat any check-then-act on shared mutable state as unsafe if an `await` sits between the check and the write, even in single-threaded JavaScript: the await is the interleaving point. Do the read-decide-write as a synchronous unit, and cover it with a test that fires many calls concurrently (`Promise.all`) and asserts on the aggregate invariant, not one that only ever awaits calls one at a time."
+
+[scoring]
+base = 1000
+par_seconds = 1200
+repro_bonus = 180

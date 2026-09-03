@@ -1,0 +1,83 @@
+id = "inc-011-fd-leak-parser"
+number = 11
+title = "Orders API Stops Reloading Config"
+severity = "high"
+difficulty = "intermediate"
+language = "c"
+system = "Orders API"
+categories = ["resources"]
+tags = ["file-descriptor-leak", "fopen", "resource-management"]
+
+description = """
+The orders API re-reads config/service.conf on a timer so ops can roll out a
+rate limit or a feature flag without a restart. It ran fine for the first
+few minutes after every deploy, then started refusing to reload and, on long
+running hosts, eventually took the service down.
+
+Nothing about the file changed between reloads: same five keys, same size,
+same permissions. The only thing that varies is how many times the process
+has reloaded it since it started.
+"""
+
+symptoms = [
+  "config_load() starts failing after a few hundred reloads on the same host",
+  "strerror(errno) reports \"Too many open files\" at the point of failure",
+  "Restarting the process clears the problem for another few hundred reloads",
+  "A single reload, or a handful of them, never fails in isolation",
+]
+
+environment = """
+Orders API
+├── src/config.h    config_t and the config_load/get/free API
+├── src/config.c    INI-style parser
+├── src/main.c      simulates the reload timer (300 cycles)
+├── config/         service.conf, the file being reloaded
+└── tests/          single-digit-reload unit tests
+"""
+
+expected_behavior = "config_load() can be called an unbounded number of times over the life of the process without exhausting file descriptors."
+broken_behavior = "Each call to config_load() consumes a file descriptor that is never returned, so the process's open-file count climbs by one on every reload until fopen() itself starts failing."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+build = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -o build/app src/*.c"
+test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/tests src/config.c tests/test_config.c && ./build/tests"
+hidden_test = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/hidden src/config.c .buglab/hidden/test_hidden.c && ./build/hidden"
+test_one = "mkdir -p build && cc -fsanitize=address,undefined -g -Isrc -Itests -o build/one src/config.c {file} && ./build/one"
+run = "./build/app"
+
+[[hints]]
+level = "direction"
+text = "Every reload opens the same file. Count what config_load() acquires against what it gives back before it returns."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The parser has more than one return point. A resource acquired at the top of the function has to be released on every one of them, including the ones that look like success."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Trace the file handle from fopen() to the end of the function. What happens to it once parsing finishes?"
+cost = 200
+
+[solution]
+files = ["src/config.c"]
+explanation = """
+config_load() opens the file with fopen() but never calls fclose() on the
+path where parsing succeeds (or hits the entry-count cap and breaks out of
+the loop) - only the calloc-failure path closed it. Every successful reload
+leaked one descriptor. Adding fclose(fp) before the final return releases it
+on every path.
+"""
+
+[postmortem]
+root_cause = "config_load() held the FILE* it opened past every return that mattered; only the out-of-memory branch closed it, so the common success path leaked one file descriptor per call."
+why_it_happened = "The function grew return points as error handling was added (missing file, OOM, malformed line) and the fclose() that belonged next to the original single return point was never carried forward to the new ones."
+why_tests_missed = "The visible tests each call config_load() a handful of times per run. A handful of leaked descriptors is invisible; the process has hundreds free. The bug only becomes observable after the leak accumulates past the descriptor limit."
+prevention = "Any function that opens a resource and has more than one return path is a leak waiting to happen; open it once, close it on a single cleanup path (or use a scope guard / RAII-style pattern where the language allows it). A test that forces the resource limit down and calls the function past that limit turns a slow leak into an immediate, deterministic failure."
+
+[scoring]
+base = 900
+par_seconds = 900
+repro_bonus = 150

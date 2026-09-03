@@ -1,0 +1,7 @@
+09:14:02 INFO payments-client: replaying checkout retry-storm, 20 orders, window capacity 5
+09:14:02 INFO payments-client: window capacity: 5
+09:14:02 INFO payments-client: orders attempted: 20
+09:14:02 INFO payments-client: charged:   20
+09:14:02 INFO payments-client: throttled: 0
+09:14:02 ERROR payments-client: charged 20 orders against a window capacity of 5
+09:14:03 ERROR payments-gateway: client storefront-01 exceeded window budget, connection reset by peer
