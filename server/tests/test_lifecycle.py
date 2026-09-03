@@ -22,7 +22,7 @@ def test_full_loop(client):
 
     files = client.get(f"/api/runs/{rid}/files").json()["files"]
     assert "report/summary.py" in files and not any("hidden" in f for f in files)
-    assert client.get(f"/api/runs/{rid}/files/../etc/passwd").status_code in (400, 404)
+    assert client.get(f"/api/runs/{rid}/files/%2E%2E/%2E%2E/etc/passwd").status_code in (400, 404)
     assert client.get(f"/api/runs/{rid}/files/.buglab/run.json").status_code == 400
 
     # app runs, tests pass on the broken project, submit fails on hidden tests

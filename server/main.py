@@ -6,7 +6,7 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, HTTPException, WebSocket
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -43,6 +43,8 @@ def create_app(db_path: Path | None = None) -> FastAPI:
 
         @app.get("/{path:path}", include_in_schema=False)
         def spa(path: str):
+            if path.startswith("api/"):
+                raise HTTPException(404, f"no such API route: /{path}")
             candidate = DIST / path
             if path and candidate.is_file():
                 return FileResponse(candidate)
