@@ -1,0 +1,84 @@
+id = "inc-012-race-oversell"
+number = 12
+title = "Flash Sale Oversold"
+severity = "critical"
+difficulty = "advanced"
+language = "python"
+system = "Inventory Service"
+categories = ["concurrency"]
+tags = ["race-condition", "check-then-act", "threads"]
+determinism_runs = 20
+
+description = """
+Saturday's flash sale offered 20 units of SKU LAMP-9 at 60% off. The
+storefront accepted 37 orders for it. Warehouse has 20 units. Support is
+now cancelling 17 orders by hand and Marketing wants to know why the
+inventory service, whose whole job is to prevent exactly this, said yes
+37 times.
+
+The service serves reservations from a thread pool. Stock levels are kept in
+memory and every successful reservation is written to the reservation ledger
+(SQLite). The stock counter at the end of the sale read 19.
+"""
+
+symptoms = [
+  "37 reservations succeeded for a SKU with 20 units; the ledger has 37 rows",
+  "The in-memory stock level finished at 19, not 0 and not -17",
+  "Reproduces only under concurrent load; sequential requests behave correctly",
+  "logs/flash-sale.log shows dozens of reservations logged within the same millisecond",
+]
+
+environment = """
+Inventory Service
+├── inventory/store.py     in-memory stock + reservation ledger (SQLite)
+├── inventory/service.py   thread-pool request handler
+├── inventory/__main__.py  python -m inventory  (simulated flash sale)
+└── tests/                 single-threaded unit tests
+"""
+
+expected_behavior = "Reservations never exceed available stock; after the sale the stock counter is 0 and exactly 20 reservations exist."
+broken_behavior = "Concurrent reservations all observe the same stock level and each subtracts from it independently, so the SKU is oversold and the counter drifts."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+run = "python -m inventory"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The counter finishing at 19 is a bigger clue than the 37 successes. What sequence of reads and writes leaves it there?"
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The ledger write between checking stock and updating it is real I/O. Think about what other threads can do while one thread is waiting on it."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at how long the lock in reserve() is actually held, and which operations happen outside it."
+cost = 200
+
+[solution]
+files = ["inventory/store.py"]
+explanation = """
+reserve() took the lock only to read the stock level, released it, wrote
+the ledger row (I/O that yields the GIL), and then took the lock again to
+write `available - qty`. Every thread that read the same `available` wrote
+the same result, so twenty threads reserving one unit each moved the counter
+from 20 to 19. Holding one lock across the check, the ledger write and the
+update makes the reservation atomic. (Moving the ledger write outside the
+critical section is fine as long as the stock decrement happens under the
+same lock as the check.)
+"""
+
+[postmortem]
+root_cause = "reserve() performed check-then-act without holding the lock across both halves. The stock read and the stock write were each individually locked, but the decision in between was not, so concurrent threads acted on a stale value."
+why_it_happened = "The lock was narrowed to 'just the dictionary access' to keep the ledger write out of the critical section for throughput. That made each access safe and the operation as a whole unsafe."
+why_tests_missed = "Every test called reserve() from one thread. With a single caller there is nothing to interleave with, so the narrowed lock looked correct."
+prevention = "Treat check-then-act on shared state as a single critical section. Add a concurrent test that starts many reservations behind a barrier and asserts on the invariant (successes + remaining == starting stock), not just on the return value of one call."
+
+[scoring]
+base = 1000
+par_seconds = 1500
+repro_bonus = 200

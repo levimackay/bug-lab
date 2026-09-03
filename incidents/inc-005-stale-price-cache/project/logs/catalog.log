@@ -1,0 +1,6 @@
+2026-09-01 09:12:03,441 INFO catalog: cache miss for SKU-TENT-2P (USD): priced at 89.00 USD
+2026-09-01 09:12:03,442 INFO catalog: cache hit for SKU-TENT-2P (EUR)
+2026-09-01 09:12:03,442 ERROR catalog.main: price served for EUR request was actually USD (89.00)
+2026-09-01 11:40:57,118 INFO catalog: cache miss for SKU-TENT-2P (USD): priced at 89.00 USD
+2026-09-01 11:40:57,119 INFO catalog: cache hit for SKU-TENT-2P (EUR)
+2026-09-01 11:40:57,119 ERROR catalog.main: price served for EUR request was actually USD (89.00)

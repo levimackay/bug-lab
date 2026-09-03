@@ -1,0 +1,84 @@
+id = "inc-002-loyalty-tier-wrong"
+number = 2
+title = "Members Stuck Below Their Tier"
+severity = "medium"
+difficulty = "beginner"
+language = "python"
+system = "Loyalty Rewards Service"
+categories = ["algorithms"]
+tags = ["boundary", "conditionals"]
+
+description = """
+Three members opened tickets this week saying the loyalty program shorted
+them a tier upgrade. Each one had a points balance that lands exactly on a
+published tier minimum: 1000, 5000, and 20000. Support checked the tier
+table in the README against the roster report and the member sitting right
+on a threshold is always placed one tier lower than the table says they
+should be.
+
+Members comfortably inside a tier's range are fine; it is only the ones who
+land exactly on the boundary who are misclassified. The nightly roster job
+runs a self-check against the published thresholds and has been logging an
+error every night since the job was added, but nobody reads the loyalty log
+unless a ticket points them at it.
+"""
+
+symptoms = [
+  "A member with exactly 1000 points is reported as Bronze instead of Silver",
+  "A member with exactly 5000 points is reported as Silver instead of Gold",
+  "A member with exactly 20000 points is reported as Gold instead of Platinum",
+  "logs/loyalty.log shows three 'boundary check failed' errors on every nightly run",
+  "python -m loyalty exits 1 because of the boundary check, even though the roster loads fine",
+]
+
+environment = """
+Loyalty Rewards Service
+├── loyalty/tiers.py     THRESHOLDS and tier_for_points()
+├── loyalty/service.py   assign_tier(), builds the roster report
+├── loyalty/roster.py    CSV ingestion
+└── data/members.csv     the member roster export
+"""
+
+expected_behavior = "A member whose points exactly equal a tier's published minimum qualifies for that tier."
+broken_behavior = "A member sitting exactly on a tier's minimum is placed in the tier below it."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m loyalty data/members.csv"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The three broken members all have points equal to a number printed in the README's tier table. Members just above or below those numbers are fine."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The roster loader and the report builder both agree with the CSV, so trust the data. The defect is in the rule that turns a points total into a tier name."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at how each tier's condition compares points to its minimum. Ask whether a member whose points equal the minimum exactly satisfies that comparison."
+cost = 200
+
+[solution]
+files = ["loyalty/tiers.py"]
+explanation = """
+tier_for_points compared with strict `>` against each tier's minimum, so a
+member whose points equalled the minimum failed the check and fell through
+to the tier below. Changing each comparison to `>=` makes a member who has
+reached the minimum qualify for that tier, matching the published table and
+the boundary self-check in __main__.py.
+"""
+
+[postmortem]
+root_cause = "tier_for_points used strict greater-than (`>`) against each tier's minimum instead of greater-than-or-equal (`>=`), so a member exactly at the minimum was excluded from that tier."
+why_it_happened = "The thresholds were written down as 'points needed to reach a tier' and the comparisons were typed as 'more than the tier below', which reads naturally but encodes the wrong boundary. The off-by-one only shows up for members sitting exactly on a threshold."
+why_tests_missed = "The visible tests only checked points comfortably inside each tier's range (250, 3400, 7600, 42000); none of them used a value equal to a threshold, so the strict comparison never mattered."
+prevention = "Test every published threshold value explicitly, not just representative values from each range. Wire the nightly boundary check into an alert instead of a log line nobody reads."
+
+[scoring]
+base = 800
+par_seconds = 420
+repro_bonus = 100

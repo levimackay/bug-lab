@@ -1,0 +1,84 @@
+id = "inc-005-stale-price-cache"
+number = 5
+title = "European Shoppers Are Seeing US Dollar Prices"
+severity = "high"
+system = "Catalog Pricing Service"
+difficulty = "intermediate"
+language = "python"
+categories = ["caching"]
+tags = ["cache-key", "currency"]
+
+description = """
+Finance flagged a batch of European orders that charged the US dollar
+amount instead of the euro amount for the same SKU. It only happens on a
+SKU that a US shopper already looked at earlier in the process's lifetime;
+a SKU nobody has priced yet comes back correct in any currency. Once it
+goes wrong for a SKU, it stays wrong for that SKU's non-USD currencies for
+the rest of the process's uptime, until the process restarts.
+
+The pricing engine itself is not in question: calling it directly for the
+SKU and currency in question returns the right number every time. The
+service caches prices in-process because the pricing engine is too slow to
+call on every page view.
+"""
+
+symptoms = [
+  "A SKU priced in USD first, then requested in EUR, returns the USD amount labelled as if it were EUR",
+  "logs/catalog.log shows a 'cache hit' for the EUR request immediately after the USD request populated the cache",
+  "Requesting a SKU's price in only one currency, ever, always returns the correct amount",
+  "Restarting the service (clearing the cache) fixes a SKU until the pattern repeats",
+]
+
+environment = """
+Catalog Pricing Service
+├── catalog/pricing.py   the pricing engine (BASE_PRICES table)
+├── catalog/cache.py     in-process PriceCache
+├── catalog/service.py   CatalogService.get_price(sku, currency)
+└── catalog/__main__.py  prices one SKU in USD then EUR
+"""
+
+expected_behavior = "Each (SKU, currency) pair is priced and cached independently; requesting a SKU in a new currency never returns another currency's cached price."
+broken_behavior = "The second currency requested for a SKU already in the cache is served that SKU's first cached price, mislabelled as the requested currency."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m catalog"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The bug depends on request order and which SKU was priced first, but never on the pricing engine's numbers. Ask what the cache actually remembers about a stored price."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "get_base_price always returns the right price for a given (sku, currency). The cache sits in front of it and short-circuits that call on a hit, so look at what makes something count as a hit."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at what PriceCache uses as the key for its internal dict, and compare it to everything the caller actually passed in when it asked for a price."
+cost = 200
+
+[solution]
+files = ["catalog/cache.py"]
+explanation = """
+PriceCache stored and looked up entries keyed only by sku, ignoring
+currency entirely. The first currency requested for a SKU populated
+`_store[sku]`, and every later request for that SKU in a different
+currency hit that same entry regardless of which currency it asked for.
+Keying the store by the (sku, currency) pair gives every currency its own
+cache slot, so a miss in a new currency reaches the pricing engine instead
+of returning another currency's stale entry.
+"""
+
+[postmortem]
+root_cause = "PriceCache.get/set used `sku` alone as the cache key, so a currency it hadn't seen yet still counted as a cache hit against whatever currency was stored first."
+why_it_happened = "The cache was written and tested when the storefront only served USD. Multi-currency support was added to the pricing engine and the service layer, but nobody revisited the cache key to include the new dimension the callers were now varying."
+why_tests_missed = "Every visible test only ever requested one currency per SKU, so a cache keyed on sku alone was indistinguishable from one keyed on (sku, currency): there was never a second currency present to collide with."
+prevention = "A cache key must include every input the cached value actually depends on. When a function gains a new parameter that changes its output, audit every cache sitting in front of it, and add a test that varies that parameter against a value already in the cache."
+
+[scoring]
+base = 900
+par_seconds = 600
+repro_bonus = 120

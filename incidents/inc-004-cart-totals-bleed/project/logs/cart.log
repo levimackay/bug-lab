@@ -1,0 +1,6 @@
+2026-09-01 14:02:11,304 INFO cart: opened cart for alice
+2026-09-01 14:02:11,305 INFO cart: opened cart for bob
+2026-09-01 14:02:11,305 ERROR cart.main: cart isolation broken: alice's cart contains bob's item SKU-STOVE
+2026-09-01 15:47:38,912 INFO cart: opened cart for alice
+2026-09-01 15:47:38,913 INFO cart: opened cart for bob
+2026-09-01 15:47:38,913 ERROR cart.main: cart isolation broken: alice's cart contains bob's item SKU-STOVE

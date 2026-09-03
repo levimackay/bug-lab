@@ -1,0 +1,88 @@
+id = "inc-009-out-of-order-results"
+number = 9
+title = "Enrichment Batch Comes Back Empty"
+severity = "high"
+difficulty = "intermediate"
+language = "javascript"
+system = "Order Enrichment Service"
+categories = ["concurrency"]
+tags = ["async-await", "forEach", "batch-job"]
+
+description = """
+Fulfillment holds a batch until every order in it has been enriched with
+the customer's loyalty tier and shipping name. This morning's batch of 6
+orders came back from the enrichment job with 0 orders enriched, and
+fulfillment never picked it up.
+
+Nobody touched the Customer Directory service, and it answers fine when
+queried by hand. The enrichment job itself reports the batch size
+correctly, it just never reports any completed enrichments, on this batch
+or any other since the last deploy.
+"""
+
+symptoms = [
+  "orders loaded reports the correct batch size every time",
+  "orders enriched is always 0, regardless of batch size",
+  "results ready is always 0; the results array handed to fulfillment is empty",
+  "the job exits 1 and logs 'batch incomplete' on every run",
+  "querying the Customer Directory service directly, for any customer in the batch, works and returns the right tier",
+]
+
+environment = """
+Order Enrichment Service
+├── src/customerDirectory.js   simulated directory lookup (network-shaped delay)
+├── src/orders.js              this morning's batch
+├── src/enrich.js              attaches tier + shipping name to each order
+├── src/main.js                node src/main.js  (runs one batch)
+└── tests/                     unit tests
+"""
+
+expected_behavior = "Every order in the batch is enriched exactly once, and the results are handed back in the same order the orders were submitted in."
+broken_behavior = "enrichOrders returns before any order has actually been enriched, so the batch is reported empty and fulfillment blocks on it."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "node src/main.js"
+test = "node --test"
+
+[[hints]]
+level = "direction"
+text = "The directory lookup works when you call it by hand. Something about how the enrichment job calls it, in bulk, is different."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "enrichOrders returns an object built from a loop over the batch. Ask what that loop actually waits for before it returns."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "A callback passed to an array iteration method can be declared async, but the iteration method itself has no idea it returned a promise."
+cost = 200
+
+[solution]
+files = ["src/enrich.js"]
+explanation = """
+enrichOrders used `orders.forEach(async (order) => { ... })`. forEach invokes
+its callback for every element and returns undefined immediately; it does not
+look at what the callback returns, so an async callback's promise is simply
+discarded. enrichOrders hit its own `return` statement before any of those
+promises had a chance to resolve, so `results` was still empty and `enriched`
+was still 0 on every run.
+
+The fix maps each order to a promise with `orders.map(async order => ...)`
+and awaits all of them with `Promise.all`, which both waits for every lookup
+to finish and preserves the input order in its return value regardless of
+which lookup resolves first.
+"""
+
+[postmortem]
+root_cause = "enrichOrders iterated the batch with Array.prototype.forEach and an async callback. forEach does not await, chain, or even inspect the promises its callback returns, so the enclosing function returned before a single Customer Directory lookup had resolved."
+why_it_happened = "forEach reads exactly like a for-of loop and the async callback compiles and runs without any complaint from Node; nothing about the syntax signals that the iteration and the awaiting are decoupled. The pattern was likely copied from a synchronous forEach elsewhere in the codebase and given an async callback without changing the loop construct."
+why_tests_missed = "The only test that exercised enrichOrders passed it an empty batch, where the bug is invisible: there is nothing to iterate, so the immediate empty return is also the correct return. The lookup function itself was tested directly and correctly, so the individual piece looked solid; nothing tested the batch pipeline with orders actually in flight."
+prevention = "Never pass an async function to forEach, map (without collecting the results), or any iterator method that ignores its callback's return value. Add at least one test that runs the full pipeline with more than one item and asserts on completeness and ordering, not just on the shape of the trivial empty case."
+
+[scoring]
+base = 800
+par_seconds = 600
+repro_bonus = 120

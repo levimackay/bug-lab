@@ -1,0 +1,9 @@
+14:31:02 INFO scheduler: queue loaded, 4 jobs
+14:31:02 INFO scheduler: jobs queued:    4
+14:31:02 INFO scheduler: jobs completed: 4
+14:31:02 INFO scheduler:   job-107 (Bishop yard signs x12) on Printer-C, done at t=10ms
+14:31:02 INFO scheduler:   job-107 (Bishop yard signs x12) on Printer-C, done at t=20ms
+14:31:02 INFO scheduler:   job-107 (Bishop yard signs x12) on Printer-C, done at t=30ms
+14:31:02 INFO scheduler:   job-107 (Bishop yard signs x12) on Printer-C, done at t=50ms
+14:31:02 ERROR scheduler: expected 4 distinct completions, saw 1: [job-107]
+14:31:02 ERROR scheduler: front desk paged job-107 four times; job-104, job-105, job-106 never announced

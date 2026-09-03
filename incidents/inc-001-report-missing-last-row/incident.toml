@@ -1,0 +1,77 @@
+id = "inc-001-report-missing-last-row"
+number = 1
+title = "Monthly Sales Report Is Short"
+severity = "medium"
+difficulty = "beginner"
+language = "python"
+system = "Reporting Service"
+categories = ["algorithms"]
+tags = ["off-by-one", "ranges"]
+
+description = """
+Finance reconciles the monthly sales report against the raw ledger every
+month. For August the report's period total came in $1,240.50 short of the
+ledger. The daily breakdown in the same report adds up to the ledger figure,
+so the data is fine; the period total is wrong.
+
+The service logs a reconciliation warning on every run. Nobody noticed until
+Finance asked why the numbers disagree.
+"""
+
+symptoms = [
+  "Period total for 2026-08 is 41919.30; the ledger and the daily breakdown sum to 43159.80",
+  "The difference (1240.50) is exactly the sales recorded on 2026-08-31",
+  "logs/app.log shows 'reconciliation mismatch' on every monthly run",
+  "Weekly reports for full weeks come out correct",
+]
+
+environment = """
+Reporting Service
+├── report/loader.py    CSV ingestion
+├── report/summary.py   totals and period maths
+├── report/cli.py       python -m report <csv>
+└── data/               the August ledger export
+"""
+
+expected_behavior = "The period total for a month equals the sum of that month's daily totals."
+broken_behavior = "The period total omits the final day of the period."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m report data/sales_2026-08.csv"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The missing amount is not random. Compare it against the daily breakdown and find which day it matches."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The loader and the daily totals agree with the ledger, so the defect is in how a period is walked, not in how the data is read."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at the loop that walks from the period's first day to its last. Ask whether the last day is inside or outside the range it covers."
+cost = 200
+
+[solution]
+files = ["report/summary.py"]
+explanation = """
+period_total walked the days with `while day < end`, which stops one day
+early for an inclusive [start, end] period. Changing the comparison to `<=`
+includes the final day. The reconciliation warning in monthly_report was the
+system telling everyone about this on every run.
+"""
+
+[postmortem]
+root_cause = "period_total treated an inclusive date range as half-open: the loop condition `day < end` excluded the period's last day."
+why_it_happened = "Python's range() and slicing are half-open, so `< end` reads as idiomatic. The function's contract (start and end are both included) was documented in the docstring but never encoded in a test with sales on the final day."
+why_tests_missed = "The visible tests only used periods whose last day had no sales, so the missing day contributed zero and the totals still matched."
+prevention = "Test boundary days explicitly (a period whose final day carries data). Make the reconciliation check fail loudly instead of logging a warning nobody reads."
+
+[scoring]
+base = 1000
+par_seconds = 600
+repro_bonus = 150

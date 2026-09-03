@@ -1,0 +1,83 @@
+id = "inc-008-too-many-open-files"
+number = 8
+title = "Log Shipper Dies Under a Full Batch"
+severity = "high"
+system = "Log Shipper"
+difficulty = "intermediate"
+language = "python"
+categories = ["resources"]
+tags = ["file-descriptors", "leak"]
+
+description = """
+The log shipper has been crashing partway through its batch for the last
+few nights, always with the same OS error about too many open files. Small
+batches during business hours never trigger it; it only shows up once the
+overnight batch grows past a couple hundred records. Ops bumped the
+process's file descriptor limit once already as a stopgap and it just
+pushed the crash later into the batch instead of preventing it.
+
+Reading a few records at a time by hand in a REPL never reproduces
+anything wrong: each record gets written to the right per-source file with
+the right content. It only falls over once enough records go through in
+one run.
+"""
+
+symptoms = [
+  "python -m logshipper crashes partway through a 300-record batch with OSError: [Errno 24] Too many open files",
+  "logs/shipper.log shows the batch starting, then the traceback, with no 'shipped N records' line ever printed",
+  "Small batches (a handful of records) always complete without error",
+  "The crash always happens deeper into the batch when the process's file descriptor limit is raised, never disappears entirely",
+]
+
+environment = """
+Log Shipper
+├── logshipper/source.py    iter_records(n) (simulated log tail)
+├── logshipper/shipper.py   LogShipper.ship() / ship_all() / close()
+└── logshipper/__main__.py  python -m logshipper (300-record batch)
+"""
+
+expected_behavior = "Shipping any number of records uses a bounded number of open file descriptors at a time."
+broken_behavior = "Every record ship()ped leaves one more file descriptor open than the last, until the process runs out and crashes."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+run = "python -m logshipper"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The crash depends on how many records go through, not on which sources or what the messages say. Ask what accumulates, one per record, for the life of the process."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "Each write to a per-source file is correct in isolation: the right line lands in the right file every time. The problem is what happens to the file object after ship() writes to it."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at what ship() does with the handle it opens, and compare that to what close() assumes has been happening to that handle all along."
+cost = 200
+
+[solution]
+files = ["logshipper/shipper.py"]
+explanation = """
+ship() opened a new file handle for every record and appended it to
+self._handles for close() to clean up later, but nothing in the batch path
+ever calls close(); the handles accumulate for the life of the process
+until the descriptor limit is hit. The fix opens each file with a `with`
+block so the handle is written to and closed within the same call, and
+drops the accumulating list entirely: no handle survives past the write
+that used it, so there is nothing left for close() to do.
+"""
+
+[postmortem]
+root_cause = "ship() opened a file handle per record and stored it in a list intended for later cleanup, but nothing in the normal batch path (ship_all, __main__) ever called close(), so every handle opened stayed open for the life of the process."
+why_it_happened = "The cleanup method existed and looked like it covered the resource correctly; the code review question that was never asked was who calls it. A batch job that runs once and exits looks, at a glance, like it doesn't need explicit cleanup at all, which made the missing call to close() easy to not notice."
+why_tests_missed = "The visible tests ship a handful of records per test and call close() themselves before asserting on file contents, so they never come close to the descriptor limit and never rely on ship_all() cleaning up after itself."
+prevention = "Any function that opens a resource per iteration of a loop should close it within that same iteration, via a `with` block, rather than deferring cleanup to a caller who has to remember to invoke it. A test that runs a realistic batch size under a lowered descriptor limit turns this into an immediate, obvious failure instead of an overnight surprise."
+
+[scoring]
+base = 900
+par_seconds = 700
+repro_bonus = 150

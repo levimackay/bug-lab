@@ -1,0 +1,16 @@
+2026-09-01 07:15:02,110 INFO invoicing: loaded 4 orders from data/orders.json
+2026-09-01 07:15:02,111 INFO invoicing: rendered invoice ORD-7001
+2026-09-01 07:15:02,111 INFO invoicing: rendered invoice ORD-7002
+Traceback (most recent call last):
+  File "/srv/invoicing/invoicing/__main__.py", line 24, in <module>
+    sys.exit(main(sys.argv))
+             ~~~~^^^^^^^^^^
+  File "/srv/invoicing/invoicing/__main__.py", line 16, in main
+    text = render_invoice(order)
+  File "/srv/invoicing/invoicing/renderer.py", line 21, in render_invoice
+    lines.append(format_shipping_block(order))
+                 ~~~~~~~~~~~~~~~~~~~~~^^^^^^^
+  File "/srv/invoicing/invoicing/renderer.py", line 6, in format_shipping_block
+    return f"Ship to:\n  {addr.street}\n  {addr.city}, {addr.state} {addr.zip}"
+                          ^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'street'

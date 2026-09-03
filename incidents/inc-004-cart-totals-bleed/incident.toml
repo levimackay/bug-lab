@@ -1,0 +1,82 @@
+id = "inc-004-cart-totals-bleed"
+number = 4
+title = "Customers Are Checking Out Each Other's Carts"
+severity = "critical"
+system = "Cart Service"
+difficulty = "beginner"
+language = "python"
+categories = ["state"]
+tags = ["mutable-default", "shared-state"]
+
+description = """
+Support is fielding complaints that customers see items in their cart they
+never added. It only happens under real traffic, never when an engineer
+tests the cart service by hand with a single customer. Whoever adds an item
+to their cart second seems to inherit whatever the first customer already
+added, and it gets worse as more customers shop concurrently: carts start
+merging into one big shared list.
+
+The cart service is a single long-running process serving every customer,
+which matches when this started: it never showed up back when each request
+spun up a fresh process.
+"""
+
+symptoms = [
+  "Two different customers' carts contain the exact same items after both have added at least one",
+  "A brand-new customer's cart is not empty if anyone has already shopped in this process",
+  "logs/cart.log shows 'cart isolation broken' errors pairing unrelated customers",
+  "The bug never reproduces in a fresh process with only one customer",
+]
+
+environment = """
+Cart Service
+├── cart/cart.py       the Cart class (items + total)
+├── cart/service.py    CartService, one Cart per customer_id
+└── cart/__main__.py   simulates two customers shopping at once
+"""
+
+expected_behavior = "Each customer's cart holds only the items that customer added."
+broken_behavior = "Items added to one customer's cart appear in every other customer's cart in the same process."
+
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m cart"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "This only shows up with more than one customer in the same process. Ask what a Cart owns for itself versus what it shares with every other Cart."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "CartService correctly keeps one Cart object per customer_id. The problem is inside what a single Cart instance considers its own list of items."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at where the items list is declared relative to __init__. A list bound at class-body level is created once, when the class itself is defined, not once per instance."
+cost = 200
+
+[solution]
+files = ["cart/cart.py"]
+explanation = """
+`items: list[CartItem] = []` was assigned in the class body, so it is one
+list object owned by the Cart class itself. Every Cart instance's
+self.items lookup fell through to that same class attribute because no
+instance ever set its own items, so add_item's append() mutated the one
+shared list for all customers. Moving the list into __init__ as
+self.items = [] gives every Cart its own list.
+"""
+
+[postmortem]
+root_cause = "The items list was a class attribute (assigned in the class body) instead of an instance attribute, so every Cart instance shared the same underlying list object."
+why_it_happened = "Python does not distinguish 'default value' from 'shared object' for mutable class-body assignments the way it might for an immutable one; `items = []` looks like initialization but is really one object created at class-definition time and reused by every instance that never shadows it."
+why_tests_missed = "Every visible test created its own CartService and only ever populated one customer's cart before asserting on it, so the shared list looked correct: there was nothing else in it yet. Concurrent shoppers were never exercised in the same test process."
+prevention = "Never assign a mutable value (list, dict, set) at class-body scope for per-instance state; initialize it in __init__. A test that opens two carts in the same process and asserts they stay disjoint would have caught this immediately."
+
+[scoring]
+base = 700
+par_seconds = 360
+repro_bonus = 100

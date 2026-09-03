@@ -1,0 +1,26 @@
+[
+  {
+    "order_id": "ORD-7001",
+    "customer_name": "Priya Chandra",
+    "items": [{"name": "Trail running shoes", "amount": 118.00}],
+    "shipping_address": {"street": "88 Birch Ave", "city": "Boise", "state": "ID", "zip": "83702"}
+  },
+  {
+    "order_id": "ORD-7002",
+    "customer_name": "Marcus Webb",
+    "items": [{"name": "Wool blanket", "amount": 64.50}, {"name": "Camp mug", "amount": 18.00}],
+    "shipping_address": {"street": "220 Cedar St", "city": "Twin Falls", "state": "ID", "zip": "83301"}
+  },
+  {
+    "order_id": "ORD-7003",
+    "customer_name": "Renee Okafor",
+    "items": [{"name": "Field Guide to Idaho Birds (ebook)", "amount": 12.99}],
+    "shipping_address": null
+  },
+  {
+    "order_id": "ORD-7004",
+    "customer_name": "Tomas Vidal",
+    "items": [{"name": "Studio license key", "amount": 199.00}],
+    "shipping_address": null
+  }
+]

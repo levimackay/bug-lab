@@ -1,0 +1,14 @@
+2026-09-01 04:10:02,880 INFO logshipper: starting batch (300 records queued)
+Traceback (most recent call last):
+  File "/srv/logshipper/logshipper/__main__.py", line 23, in <module>
+  File "/srv/logshipper/logshipper/__main__.py", line 16, in main
+  File "/srv/logshipper/logshipper/shipper.py", line 23, in ship_all
+  File "/srv/logshipper/logshipper/shipper.py", line 16, in ship
+OSError: [Errno 24] Too many open files: 'shipped/api.log'
+2026-09-02 04:10:03,201 INFO logshipper: starting batch (300 records queued)
+Traceback (most recent call last):
+  File "/srv/logshipper/logshipper/__main__.py", line 23, in <module>
+  File "/srv/logshipper/logshipper/__main__.py", line 16, in main
+  File "/srv/logshipper/logshipper/shipper.py", line 23, in ship_all
+  File "/srv/logshipper/logshipper/shipper.py", line 16, in ship
+OSError: [Errno 24] Too many open files: 'shipped/api.log'

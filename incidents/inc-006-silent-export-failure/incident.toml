@@ -1,0 +1,84 @@
+id = "inc-006-silent-export-failure"
+number = 6
+title = "Export Job Claims Success With Nothing Exported"
+severity = "high"
+system = "Finance Nightly Export"
+difficulty = "intermediate"
+language = "python"
+categories = ["error-handling"]
+tags = ["swallowed-exception", "silent-failure"]
+
+description = """
+Finance's reconciliation tool has been failing every morning this week
+because the customer balance export file is missing. The export job's own
+log says otherwise: every run prints "export succeeded: 120 rows" and the
+job's exit status has never been anything but healthy. Ops pulled the
+export share's mount status and confirmed it dropped off the night this
+started; nobody noticed because nothing about the job's output looked like
+a failure.
+
+Whatever is wrong is not in how many rows the job thinks it has to export,
+and it is not in the row data itself: the row count printed every night
+(120) matches the customer count Finance expects. The file the job is
+supposed to produce simply is not there the next morning.
+"""
+
+symptoms = [
+  "python -m export prints 'export succeeded: 120 rows' every run",
+  "logs/export.log shows a WARNING that the sink failed, immediately followed by a successful-looking result",
+  "The export file the job is supposed to write does not exist afterward",
+  "The job's row count (120) always matches the real customer count; only the file is missing",
+]
+
+environment = """
+Finance Nightly Export
+├── export/source.py   fetch_records() (the ledger snapshot)
+├── export/sink.py     FileSink.write(records)
+├── export/job.py       ExportJob.run() -> ExportResult
+└── export/__main__.py  python -m export
+"""
+
+expected_behavior = "If the sink fails to write, the job reports failure (success=False) and does not claim any rows were exported."
+broken_behavior = "A failure while writing to the sink is logged and swallowed; the job still reports success with the full row count, as if the write had completed."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m export"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "The log line about the sink failing and the 'export succeeded' message both appear on every broken run, back to back. Ask why the job's final answer disagrees with its own warning."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "fetch_records and FileSink both do exactly what they claim; the row count is real and the write attempt is real. The disconnect is in whatever decides what ExportResult to hand back after the write is attempted."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at what happens to the exception raised when the sink's write() fails, and what gets returned right after it is caught."
+cost = 200
+
+[solution]
+files = ["export/job.py"]
+explanation = """
+ExportJob.run() caught any exception from sink.write(), logged a warning,
+and then returned ExportResult(success=True, rows_exported=len(records))
+regardless, the same result it returns on the happy path. The caller has no
+way to tell a completed export from one whose write never landed. The fix
+returns ExportResult(success=False, rows_exported=0, error=str(e)) from the
+except block, so a sink failure is reported as the failure it is.
+"""
+
+[postmortem]
+root_cause = "The except block around sink.write() logged the exception but still constructed a success ExportResult with the full row count, instead of reporting the write as failed."
+why_it_happened = "The try/except was added to keep one bad night from crashing the whole job and paging someone at 2am. Making the job merely not crash was conflated with making it report success; the except branch was never given its own, honest result to return."
+why_tests_missed = "The visible tests only exercise a FileSink writing to a real, writable temp path, so the except branch never runs. Nothing in the visible suite ever hands the job a sink that fails."
+prevention = "Never return the same success result from an except block that a try block returns; a caught exception should produce a result that says so. Add a test with a sink built to fail, asserting the job's result reflects that failure."
+
+[scoring]
+base = 900
+par_seconds = 600
+repro_bonus = 120

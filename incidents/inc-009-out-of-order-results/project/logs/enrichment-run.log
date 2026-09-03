@@ -1,0 +1,12 @@
+10:02:11 INFO enrichment-job: starting batch, 6 orders queued
+10:02:11 INFO enrichment-job: orders loaded:   6
+10:02:11 INFO enrichment-job: orders enriched: 0
+10:02:11 INFO enrichment-job: results ready:   0
+10:02:11 ERROR enrichment-job: enriched 0/6 orders, batch incomplete
+10:02:11 ERROR enrichment-job: batch exited 1, pipeline halted before handoff to fulfillment
+10:02:41 INFO enrichment-job: starting batch, 6 orders queued
+10:02:41 INFO enrichment-job: orders loaded:   6
+10:02:41 INFO enrichment-job: orders enriched: 0
+10:02:41 INFO enrichment-job: results ready:   0
+10:02:41 ERROR enrichment-job: enriched 0/6 orders, batch incomplete
+10:02:41 ERROR enrichment-job: batch exited 1, pipeline halted before handoff to fulfillment

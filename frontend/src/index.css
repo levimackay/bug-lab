@@ -1,0 +1,201 @@
+@import "tailwindcss";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+@import "@fontsource/jetbrains-mono/400.css";
+@import "@fontsource/jetbrains-mono/500.css";
+@import "@fontsource/jetbrains-mono/700.css";
+
+@theme {
+  --color-ground: #0b0d10;
+  --color-panel: #111418;
+  --color-raised: #161a20;
+  --color-line: #1f242b;
+  --color-line-strong: #2c333c;
+  --color-ink: #d6dbe3;
+  --color-ink-dim: #8b94a3;
+  --color-ink-faint: #5c6572;
+
+  --color-operational: #3fb950;
+  --color-success: #3fb950;
+  --color-warning: #d29922;
+  --color-failure: #f85149;
+  --color-info: #58a6ff;
+  --color-running: #58a6ff;
+
+  --color-severity-low: #8b94a3;
+  --color-severity-medium: #d29922;
+  --color-severity-high: #f0883e;
+  --color-severity-critical: #f85149;
+
+  --color-focus-ring: #58a6ff;
+  --color-selection: rgba(88, 166, 255, 0.18);
+
+  --font-ui: "IBM Plex Sans", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 28px;
+
+  --tracking-caps: 0.08em;
+
+  --radius-none: 0px;
+}
+
+* {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-ground);
+  color: var(--color-ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--color-selection);
+}
+
+.panel-title {
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  color: var(--color-ink-faint);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  padding: 8px;
+}
+
+.btn {
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-line);
+  background: transparent;
+  color: var(--color-ink-dim);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  cursor: pointer;
+  transition: border-color 120ms, color 120ms, background-color 120ms;
+}
+
+.btn:hover:not(:disabled) {
+  color: var(--color-ink);
+  border-color: var(--color-line-strong);
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
+.btn-success {
+  border-color: var(--color-success);
+  color: var(--color-success);
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.btn-running {
+  border-color: var(--color-running);
+  color: var(--color-running);
+}
+
+.hairline {
+  border-color: var(--color-line);
+}
+
+.focus-ring:focus-visible {
+  outline: 2px solid var(--color-focus-ring);
+  outline-offset: -1px;
+}
+
+.mount-stagger > * {
+  animation: mount-in 160ms ease-out backwards;
+}
+
+.mount-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.mount-stagger > *:nth-child(2) { animation-delay: 90ms; }
+.mount-stagger > *:nth-child(3) { animation-delay: 180ms; }
+.mount-stagger > *:nth-child(4) { animation-delay: 270ms; }
+
+@keyframes mount-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes severity-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.severity-pulse {
+  animation: severity-pulse 2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mount-stagger > * {
+    animation: none !important;
+  }
+  .severity-pulse {
+    animation: none !important;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
+}
+
+.trace-line-highlight {
+  background: rgba(248, 81, 73, 0.15);
+}
+
+.skeleton-row {
+  height: 1px;
+  background: var(--color-line);
+  position: relative;
+  overflow: hidden;
+}
+
+.skeleton-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--color-line-strong);
+  animation: skeleton-sweep 1.2s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-row::after {
+    animation: none;
+  }
+}
+
+@keyframes skeleton-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}

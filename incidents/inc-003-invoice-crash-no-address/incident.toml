@@ -1,0 +1,81 @@
+id = "inc-003-invoice-crash-no-address"
+number = 3
+title = "Invoice Run Dies on Digital Orders"
+severity = "high"
+system = "Invoice Renderer"
+difficulty = "beginner"
+language = "python"
+categories = ["error-handling"]
+tags = ["none-check", "attribute-error"]
+
+description = """
+Finance's nightly invoice run has been crashing partway through since the
+storefront started selling ebooks and licence keys alongside physical
+merchandise. The batch renders invoices in order, and it always makes it
+through every physical order that comes before the first digital one, then
+dies. Whatever digital order comes first in the day's export is the last
+thing the log mentions.
+
+Support has confirmed it is not a data problem: the digital orders in the
+export are well-formed, they simply have no shipping address, because
+nothing ships. Physical orders have never triggered this.
+"""
+
+symptoms = [
+  "python -m invoicing crashes with AttributeError partway through a batch that includes any digital order",
+  "logs/invoicing.log shows every physical invoice rendering fine, then a traceback and nothing after it",
+  "The traceback points at the shipping address formatting code, not the loader",
+  "Batches containing only physical orders always complete",
+]
+
+environment = """
+Invoice Renderer
+├── invoicing/loader.py    reads data/orders.json
+├── invoicing/renderer.py  builds the invoice text, including the shipping block
+├── invoicing/models.py    Order / Address / LineItem
+└── data/orders.json       the day's order export
+"""
+
+expected_behavior = "An order with no shipping address (a digital order) renders an invoice noting digital delivery instead of a shipping block."
+broken_behavior = "Rendering an order with no shipping address raises AttributeError and stops the batch."
+tools = ["logs", "tests", "runtime", "stack_trace"]
+
+[commands]
+run = "python -m invoicing data/orders.json"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "Every order that crashes the batch has one field in common: it is missing something every physical order has. Compare a crashing order to a working one field by field."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The loader and the models are fine; a digital order's address field is legitimately empty by design, not malformed. The defect is in whatever code assumes that field is always present."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at the function that turns an order's shipping address into text. What does it do before checking whether there is an address at all?"
+cost = 200
+
+[solution]
+files = ["invoicing/renderer.py"]
+explanation = """
+format_shipping_block read order.shipping_address.street unconditionally. For
+a digital order shipping_address is None by design, so the attribute access
+raised AttributeError. The fix checks for None first and returns a digital
+delivery note instead of a shipping block, matching how loader.py already
+treats a null shipping_address as a legitimate value, not missing data.
+"""
+
+[postmortem]
+root_cause = "format_shipping_block dereferenced order.shipping_address.street/.city/.state/.zip without checking whether shipping_address was None, which it legitimately is for digital orders."
+why_it_happened = "The renderer was written when every order shipped physically, before digital goods existed. When digital orders were added, the loader and the Order model were updated to allow a null address, but the renderer that already assumed an address existed was not."
+why_tests_missed = "The visible tests only build orders with a populated Address, because that was the only kind of order the renderer's author had in mind. Nothing in the test suite ever constructs an order the way the digital-goods loader actually produces one."
+prevention = "Whenever a field's type changes to include None, grep for every place that dereferences it and add a test for the None case. A short-lived digital-only order fixture in the test suite would have caught this immediately."
+
+[scoring]
+base = 700
+par_seconds = 360
+repro_bonus = 100

@@ -1,0 +1,84 @@
+id = "inc-010-closure-timer"
+number = 10
+title = "Every Job Announces as the Last Job"
+severity = "medium"
+difficulty = "intermediate"
+language = "javascript"
+system = "Print Shop Job Scheduler"
+categories = ["concurrency", "state"]
+tags = ["closures", "var", "event-loop"]
+
+description = """
+The front desk pages a customer's name when their print job finishes. This
+afternoon four jobs went through the queue and the desk got paged for the
+same job, four times, while the other three customers never got called.
+
+The scheduler reported all four jobs as completed, at four different times,
+which matches the job durations. It just announced the wrong job every time
+but the last one.
+"""
+
+symptoms = [
+  "jobs completed always equals the number of jobs queued",
+  "every completion in the log names the same job id, the last one in the queue",
+  "the completion timestamps are correct and distinct, only the job identity attached to each is wrong",
+  "scheduling a single job works correctly every time",
+]
+
+environment = """
+Print Shop Job Scheduler
+├── src/clock.js           virtual clock: setTimeout + runAll()
+├── src/jobScheduler.js    schedules one completion callback per job
+├── src/jobs.js            this afternoon's print queue
+├── src/main.js            node src/main.js  (schedules and runs the queue)
+└── tests/                 unit tests
+"""
+
+expected_behavior = "Each print job's completion callback reports that job's own id, name and printer, at the time its own delay elapses."
+broken_behavior = "Every completion callback reports the same job, the last one scheduled, regardless of which job's timer actually fired."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "node src/main.js"
+test = "node --test"
+
+[[hints]]
+level = "direction"
+text = "The timestamps are right and distinct. Whatever's wrong isn't about when the callbacks run, it's about what each one can see when it runs."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "Every callback was created inside the same loop, over the same collection. Ask whether they each got their own copy of the loop's per-iteration data, or all reference one shared slot."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Declare a loop variable with `var` instead of `let` or `const` and it stops being scoped to the iteration. Look at how the per-job variable is declared."
+cost = 200
+
+[solution]
+files = ["src/jobScheduler.js"]
+explanation = """
+scheduleAll declared both the loop counter and the per-iteration job with
+`var`. `var` is function-scoped, not block-scoped, so there was exactly one
+`job` binding for the whole call to scheduleAll, reused on every iteration.
+By the time any timer fired, the loop had already finished and `job` held
+whatever value the last iteration had left in it, so every callback closed
+over the same, final job.
+
+The fix iterates with `for (const job of jobs)`. `const` in a for-of loop
+creates a fresh binding on every iteration, so each callback closes over its
+own job instead of a shared one.
+"""
+
+[postmortem]
+root_cause = "scheduleAll used `var job = jobs[i]` inside a `for` loop. Every closure created in the loop body captured the same function-scoped `job` variable, not a snapshot of that iteration's job, so all of them saw whatever `job` held once the loop had finished running."
+why_it_happened = "The loop reads the same as any other indexed for loop, and nothing about scheduling a callback inside it looks unusual on its own. The bug only exists because the callback is deferred: it runs long after the loop has already finished mutating the shared variable, and that gap between 'closure created' and 'closure invoked' is exactly where `var`'s function scoping bites."
+why_tests_missed = "The only scheduler test that queued more than zero jobs queued exactly one. With a single iteration there is only one value `job` is ever assigned, so the shared-variable bug is unobservable: the one callback and the one job happen to agree by coincidence, every time."
+prevention = "Default to `let`/`const` in any loop that creates a closure meant to run later, and treat `var` in new code as a lint failure. Test scheduling logic with more than one item; a batch of size one can't distinguish 'each item gets its own state' from 'everyone shares one'."
+
+[scoring]
+base = 700
+par_seconds = 480
+repro_bonus = 100

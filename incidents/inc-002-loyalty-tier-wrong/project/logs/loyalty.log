@@ -1,0 +1,8 @@
+2026-09-01 02:00:01,203 INFO loyalty: assigned tiers for 10 members: {'Bronze': 4, 'Silver': 2, 'Gold': 3, 'Platinum': 1}
+2026-09-01 02:00:01,204 ERROR loyalty.boundary: boundary check failed: 20000 points should be Platinum, got Gold
+2026-09-01 02:00:01,204 ERROR loyalty.boundary: boundary check failed: 5000 points should be Gold, got Silver
+2026-09-01 02:00:01,204 ERROR loyalty.boundary: boundary check failed: 1000 points should be Silver, got Bronze
+2026-09-02 02:00:01,942 INFO loyalty: assigned tiers for 10 members: {'Bronze': 4, 'Silver': 2, 'Gold': 3, 'Platinum': 1}
+2026-09-02 02:00:01,943 ERROR loyalty.boundary: boundary check failed: 20000 points should be Platinum, got Gold
+2026-09-02 02:00:01,943 ERROR loyalty.boundary: boundary check failed: 5000 points should be Gold, got Silver
+2026-09-02 02:00:01,943 ERROR loyalty.boundary: boundary check failed: 1000 points should be Silver, got Bronze

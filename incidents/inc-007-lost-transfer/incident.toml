@@ -1,0 +1,84 @@
+id = "inc-007-lost-transfer"
+number = 7
+title = "Money Vanishes on Transfers to Frozen Accounts"
+severity = "critical"
+system = "Ledger Service"
+difficulty = "intermediate"
+language = "python"
+categories = ["database", "data-integrity"]
+tags = ["transactions", "atomicity"]
+
+description = """
+Compliance placed a fraud hold on a customer's savings account this
+morning. Ten minutes later the customer's scheduled transfer from checking
+into that same savings account ran, was blocked as expected (frozen
+accounts can't receive funds), and support closed the ticket. Except the
+customer's checking account is now short the transfer amount, the savings
+account never received it, and the total across both accounts is less than
+it was before the blocked transfer ran.
+
+Transfers between two accounts that are both open and unfrozen work
+correctly and post as expected. Rejected transfers are the only case where
+the numbers stop adding up.
+"""
+
+symptoms = [
+  "A transfer blocked because the destination is frozen still debits the source account",
+  "python -m ledger prints a lower 'total balance after' than 'total balance before' whenever the transfer it attempts is blocked",
+  "logs/ledger.log shows 'transfer blocked' immediately followed by a LOST TRANSFER error with a nonzero amount",
+  "Transfers to accounts that are not frozen always leave the combined total unchanged",
+]
+
+environment = """
+Ledger Service
+├── ledger/store.py    LedgerStore.transfer(from_id, to_id, amount_cents)
+├── ledger/report.py   total_balance() across a set of accounts
+└── ledger/__main__.py  python -m ledger
+"""
+
+expected_behavior = "A transfer that is rejected for any reason (insufficient funds, frozen destination) leaves every account's balance exactly as it was."
+broken_behavior = "A transfer rejected because the destination is frozen still leaves the source account debited, so the combined total drops by the transfer amount."
+tools = ["logs", "tests", "runtime"]
+
+[commands]
+run = "python -m ledger"
+test = "pytest -q"
+
+[[hints]]
+level = "direction"
+text = "Insufficient-funds transfers never lose money; frozen-destination transfers do. Compare what transfer() checks, and when, in each of those two failure paths."
+cost = 50
+
+[[hints]]
+level = "subsystem"
+text = "The debit and the credit are two separate pieces of work against the database. Ask what has already been made permanent by the time the frozen check runs."
+cost = 100
+
+[[hints]]
+level = "area"
+text = "Look at how many `with self._connect() as db:` blocks transfer() opens, and what happens to whatever was written in the first one if the second one raises."
+cost = 200
+
+[solution]
+files = ["ledger/store.py"]
+explanation = """
+transfer() ran the debit in its own `with self._connect() as db:` block,
+which committed as soon as that block exited, then opened a second
+connection to check the destination and credit it. When the destination
+turned out to be frozen, the credit never happened but the debit already
+had, permanently. The fix reads both accounts and validates both
+conditions (sufficient funds, destination not frozen) inside a single
+connection block before writing anything, so a rejected transfer raises
+before either balance is touched and nothing is left half-done.
+"""
+
+[postmortem]
+root_cause = "transfer() split the debit and the credit across two separate database connections/transactions. The debit committed on its own before the destination's frozen status was even checked, so a rejection after that point could not undo it."
+why_it_happened = "The frozen check was added after insufficient-funds checking already existed and worked (it happens entirely before any write, in the first block). The new check was appended after the debit instead of being moved alongside the other pre-write validation, because at a glance the transfer 'still raises an exception on frozen accounts', which looked like correct behavior."
+why_tests_missed = "The visible tests cover a successful transfer, an insufficient-funds rejection, and an unknown account, none of which involve a frozen destination, so the debit-then-check ordering was never exercised by anything that could reveal a partial write."
+prevention = "Validate every precondition for a multi-step write before performing any part of it, inside one transaction. A test that asserts the invariant (total balance unchanged) across every rejection path, not just the return value of one call, would have caught this."
+
+[scoring]
+base = 950
+par_seconds = 700
+repro_bonus = 130
