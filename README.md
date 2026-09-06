@@ -50,7 +50,8 @@ Incident ─▶ Workspace (your private copy) ─▶ Sandbox ─▶ Program / Te
 `scripts/verify_incidents.py` is the content gate: for every incident it checks
 that the visible tests pass on the broken code, the hidden tests fail on it,
 everything passes with the reference solution applied, and (for concurrency
-incidents) that the failure reproduces twenty times in a row.
+incidents) that the failure reproduces a set number of times in a row, per
+the incident's `determinism_runs` (10-20 across the current incidents).
 
 ## Layout
 
